@@ -1,0 +1,30 @@
+[package]
+name = "glorious-rs"
+version = "0.1.0"
+edition = "2024"
+description = "Open source configuration app for Glorious Model O and related mice"
+repository = "https://github.com/example/glorious-rs"
+license = "MIT"
+readme = "README.md"
+default-run = "glorious-rs"
+
+[lib]
+name = "glorious"
+path = "src/lib.rs"
+
+[[bin]]
+name = "glorious-rs"
+path = "src/main.rs"
+
+[dependencies]
+eframe = "0.36.2"
+# linux-static-hidraw is the default backend and the right one here: the mouse
+# kernel driver owns the interface, so libusb would fail to claim it.
+hidapi = { version = "2.6.7", features = ["linux-static-hidraw", "windows-native"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

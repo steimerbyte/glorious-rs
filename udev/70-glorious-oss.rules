@@ -1,0 +1,25 @@
+# Glorious / SinoWealth mice. The vendor feature reports are exposed through
+# hidraw, which is what hidapi's linux-static-hidraw backend talks to.
+#
+# Install with:
+#   sudo cp udev/70-glorious-oss.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# The 70 prefix is deliberate. Rules run in lexicographic order, and uaccess is
+# applied by the seat rules that run at 73, so a later file would grant nothing.
+
+ACTION!="add|change", GOTO="glorious_oss_end"
+
+# Glorious Model O / O- wired, firmware 1.0.9 and later
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="0036", MODE="0660", TAG+="uaccess", SYMLINK+="glorious/model-o"
+# Glorious Model O wired, original firmware
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="0027", MODE="0660", TAG+="uaccess", SYMLINK+="glorious/model-o-legacy"
+# Glorious Model D / D- wired
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="0033", MODE="0660", TAG+="uaccess", SYMLINK+="glorious/model-d"
+# Glorious Model O Eternal. Matches both ids because 3794 is unregistered and
+# could collide with an unrelated device.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3794", ATTRS{idProduct}=="a000", MODE="0660", TAG+="uaccess", SYMLINK+="glorious/model-o-eternal"
+# Glorious Model I
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="22d4", ATTRS{idProduct}=="1503", MODE="0660", TAG+="uaccess", SYMLINK+="glorious/model-i"
+
+LABEL="glorious_oss_end"

@@ -1,0 +1,20 @@
+#!/bin/sh
+# Entry point of the AppImage.
+#
+# Reading the mouse needs the hidraw nodes to be readable by this user. The udev
+# rule handles that, so the only thing left is telling the user what to do when
+# it is not installed, rather than failing with a bare permission error.
+HERE="$(dirname "$(readlink -f "$0")")"
+
+if [ ! -e /dev/hidraw0 ]; then
+    echo "Glorious Mouse: no HID devices are visible." >&2
+    echo "This usually means the udev rule is missing." >&2
+    echo >&2
+    echo "  sudo cp $HERE/usr/share/glorious-rs/udev/70-glorious-oss.rules /etc/udev/rules.d/" >&2
+    echo "  sudo udevadm control --reload-rules && sudo udevadm trigger" >&2
+    echo >&2
+    echo "Then unplug the mouse and plug it back in." >&2
+    exit 1
+fi
+
+exec "$HERE/usr/bin/glorious-rs" "$@"

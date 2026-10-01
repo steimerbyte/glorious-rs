@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Glorious Mouse
+GenericName=Mouse Configuration
+Comment=Configure Glorious gaming mice
+Exec=glorious-rs
+Icon=glorious-rs
+Terminal=false
+Categories=Settings;HardwareSettings;Utility;
+Keywords=mouse;dpi;glorious;gaming;mousepad;hid;
