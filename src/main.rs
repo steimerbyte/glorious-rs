@@ -3,6 +3,7 @@
 use eframe::egui;
 
 use glorious::app::AppState;
+use glorious::confetti;
 use glorious::device::{DeviceState, HidMouse};
 use glorious::protocol::{COLOR_SLOT_BASE, NUM_DPI_SLOTS, RgbEffect, raw_to_dpi};
 use glorious::transport::HidTransport;
@@ -587,6 +588,8 @@ struct GloriousApp {
     /// Slot the preset buttons write to, so they have a target before one is
     /// picked in the table. Falls back to the slot the mouse is using.
     preset_slot: Option<usize>,
+    /// The burst of paper shown when a colour is set.
+    confetti: confetti::Confetti,
 }
 
 impl GloriousApp {
@@ -598,6 +601,7 @@ impl GloriousApp {
             worker,
             saving: false,
             preset_slot: None,
+            confetti: confetti::Confetti::default(),
         }
     }
 
@@ -655,6 +659,12 @@ impl GloriousApp {
 
 impl eframe::App for GloriousApp {
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Clamped, because a window that was in the background reports a delta of
+        // many seconds at once, which would teleport every piece off screen.
+        let delta_seconds = root
+            .ctx()
+            .input(|input| input.stable_dt)
+            .clamp(0.0, 0.05);
         match self.worker.take_reply() {
             Some(Reply::State(state)) => {
                 self.state.device = Some(*state);
@@ -669,11 +679,22 @@ impl eframe::App for GloriousApp {
         }
 
         self.state.reload_requested = false;
-        if self.saving {
+        if self.saving || self.confetti.is_active() {
+            // Repainting is requested while the burst is falling, because the
+            // pieces move on their own: without this the window would only update
+            // when the pointer moves and the burst would freeze mid-air.
             root.ctx().request_repaint();
         }
 
         let actions = ui::draw(root, &mut self.state);
+        if !actions.saved_colours.is_empty() {
+            // The burst comes from the middle of the window rather than from the
+            // swatch that was clicked: the swatch sits near the top, and pieces
+            // thrown upwards from there would immediately leave the window.
+            self.confetti
+                .burst(actions.saved_colours[0].1, root.ctx().content_rect().center());
+        }
+        self.confetti.draw(root, delta_seconds);
         self.dispatch(actions);
     }
 }

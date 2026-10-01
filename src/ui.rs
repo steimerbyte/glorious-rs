@@ -24,6 +24,10 @@ pub struct UiActions {
     pub select_slot: Option<usize>,
     /// Resolution to hand to the slots the preset covers.
     pub apply_preset: Option<u16>,
+    /// Colours that were just written, so the window can mark the change. Filled
+    /// only when a write actually goes out, not while the picker is being
+    /// dragged: a burst per frame of a drag would be a solid sheet of paper.
+    pub saved_colours: Vec<(usize, [u8; 3])>,
 }
 
 /// Resolutions offered as one click, the ones that come up in practice.
@@ -260,6 +264,7 @@ fn draw_dpi(ui: &mut egui::Ui, state: &mut AppState, actions: &mut UiActions) {
     for (index, color) in colors {
         if released {
             actions.save_color = Some((index, color));
+            actions.saved_colours.push((index, color));
         }
     }
 }
