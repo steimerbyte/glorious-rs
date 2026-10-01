@@ -7,6 +7,16 @@ which the manufacturer discontinued and which was a Windows-only application.
 ![The window, showing the eight DPI slots with their colours, the polling rate,
 the lighting effect and the click debounce](docs/screenshot.png)
 
+**This project was written entirely with AI assistance.** The protocol is
+undocumented, so every offset in here was found by experiment against a real
+mouse: writing a value, reading the configuration blob back, and in the case of
+the lighting, photographing the mouse with the laptop camera to see what it
+actually did. Several of the findings contradict what the code looked like when
+it was first written, and the comments say so. Expect the same from further work
+on it: treat it as hardware reverse engineering with an assistant, not as
+reviewed production code. Every claim in this file was measured, but the
+measurement setup is not reproduced here, so verify before relying on it.
+
 The USB protocol is documented in [PROTOCOL.md](PROTOCOL.md), including which
 parts were measured on real hardware and which are still open.
 
@@ -107,6 +117,43 @@ The device does not confirm a write, and reading the blob back does not show
 whether the change took effect. For anything that touches the LEDs, a camera is
 the only witness: write a colour, photograph the mouse, and compare. The scripts
 used for that live outside this repository, in `~/tmp/mouse-cam/`.
+
+## Keywords
+
+Searching for a replacement for the vendor tool usually starts with the symptom
+rather than the product name, so the terms below are the ones that describe the
+problem rather than the project.
+
+**German**
+
+Glorious Model O Alternative, Glorious Model O Software Ersatz, Glorious Model
+O Konfigurationssoftware, Glorious Model O open source, Glorious Model O
+Einstellungen am PC, Glorious Maus DPI einstellen, Glorious Maus RGB Farbe
+ändern, Glorious Model O Beleuchtung, Glorious Model O Software abgeschaltet,
+Glorious Model O kein Effekt mehr, Glorious Model O Hersteller Software
+abgeschafft, Glorious Model O Treiber funktioniert nicht, Glorious Model O
+Farbe wird nicht übernommen, Glorious Model O Glorious Mode ausschalten, Maus
+Beleuchtung einstellen Windows, Maus Makro Software, Glorious Model O ohne
+Herstellersoftware einstellen, Maus DPI Stufen einstellen, Glorious Model O
+Firmware 1.0.9, Glorious Model O anschließen Linux, Glorious Maus hidraw Linux,
+HID Feature Report Maus auslesen.
+
+**English**
+
+Glorious Model O open source alternative, Glorious Model O configuration tool
+Linux, Glorious Model O software discontinued, replace Glorious Model O
+software, Glorious Model O settings on PC, Glorious mouse RGB colour per DPI
+slot, Glorious Model O driver not working, Glorious Model O colour not
+applying, Glorious Model O Glorious mode disable, Glorious Model O Protocol,
+SinoWealth HID protocol, Model O mouse config Linux, mouse DPI profiles open
+source, USB HID feature report mouse configuration, Model O replacement
+software.
+
+**Related hardware this was tested against**
+
+Glorious Model O wired 258a:0036, Glorious Model O- wired, Glorious Model D,
+Glorious Model O Wireless, Glorious Model O Eternal, SinoWealth 0027 and 0036
+firmware, PMW3360 sensor.
 
 ## Licence
 
