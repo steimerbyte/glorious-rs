@@ -46,9 +46,24 @@ pub enum Command {
         mode_byte: u8,
     },
     /// Set one resolution on the slot the user picked and the ones that are off.
+    ///
+    /// This is the old behaviour and it is a fill, not a mapping: every slot
+    /// that is switched off ends up with the same value. It is kept because
+    /// filling a profile from scratch is what it is good at, and because a
+    /// device that was just plugged in has nothing set.
     ApplyPreset {
         slot: usize,
         dpi: u16,
+    },
+    /// Give a list of resolutions and colours to the enabled slots, in order.
+    ///
+    /// The target slot of each entry is decided by the device's own state rather
+    /// than by the user naming it, so the list and the mouse cannot drift
+    /// apart: entry one goes to the lowest enabled slot, and so on. Slots the
+    /// list does not reach are left as they are, so a list of two against a
+    /// profile of six does not wipe the other four.
+    ApplyProfile {
+        entries: Vec<(u16, [u8; 3])>,
     },
     SetDebounce {
         ms: u8,
@@ -213,14 +228,36 @@ fn apply(mouse: &mut HidMouse, command: Command) -> Reply {
                 None => Err("no lighting effect is selected".to_string()),
             })
         }
+        // A list of resolutions and colours, mapped onto the enabled slots in
+        // order.
+        //
+        // The mapping is by position among the slots the mouse drives, not by
+        // the slot number the window shows. A disabled slot is storage the
+        // firmware keeps and does not light, so writing one produces a setting
+        // the user cannot see and the profile they asked for is not the profile
+        // they get. Entry one therefore goes to the first enabled slot, entry
+        // two to the second, and so on.
+        //
+        // Entries beyond the number of enabled slots are dropped rather than
+        // refused. A profile with fewer slots than the list has entries is a
+        // normal thing to hit while the mouse is set up, and refusing the whole
+        // list would leave the user with nothing instead of with a partial
+        // profile they can see.
+        //
+        // Colours arrive in the order the window uses and leave in the device's
+        // own order, because that conversion belongs where the bytes are written.
+        Command::ApplyProfile { entries } => {
+            with_profile(mouse, |profile| apply_profile(profile, &entries))
+        }
+        // The old fill: one resolution on the slot the user picked and on every
+        // slot that is switched off. Kept because filling a profile from
+        // scratch is what it is for, and because a mouse that was just plugged
+        // in has nothing set.
         Command::ApplyPreset { slot, dpi } => with_profile(mouse, |profile| {
             let slots = &mut profile.slots;
             if slot >= slots.len() {
                 return Err(format!("slot {} does not exist", slot + 1));
             }
-            // The chosen slot takes the resolution, and so does every slot that
-            // is switched off: those are the ones the user is not using, so
-            // setting them is how a profile gets filled out.
             slots[slot].dpi = dpi;
             for (index, other) in slots.iter_mut().enumerate() {
                 if other.disabled && index != slot {
@@ -242,6 +279,45 @@ fn apply(mouse: &mut HidMouse, command: Command) -> Reply {
         Ok(None) => read(mouse, true),
         Err(error) => Reply::Failed(error),
     }
+}
+
+/// Hand a list of resolutions and colours to the slots the mouse drives.
+///
+/// The mapping is by position among the enabled slots, not by the slot number
+/// the window shows. A disabled slot is storage the firmware keeps and does not
+/// light, so writing one produces a setting the user cannot see, and the
+/// profile they asked for is not the profile they get. Entry one therefore goes
+/// to the first enabled slot, entry two to the second, and so on.
+///
+/// Entries beyond the number of enabled slots are dropped rather than refused. A
+/// profile with fewer slots than the list has entries is a normal thing to hit
+/// while a mouse is being set up, and refusing the whole list would leave the
+/// user with nothing instead of with a partial profile they can see and finish.
+///
+/// Colours arrive in the order the window uses and leave in the device's own
+/// order, because that conversion belongs where the bytes are written. Doing it
+/// here as well would be the same swap applied twice, and red is the case that
+/// hides it: it is the one channel a swap does not touch.
+pub fn apply_profile(
+    profile: &mut crate::profile::Profile,
+    entries: &[(u16, [u8; 3])],
+) -> Result<(), String> {
+    if entries.is_empty() {
+        return Err("no profile step was given".to_string());
+    }
+    let enabled: Vec<usize> = (0..crate::protocol::USABLE_DPI_SLOTS)
+        .filter(|index| !profile.slots[*index].disabled)
+        .collect();
+    if enabled.is_empty() {
+        return Err(
+            "every slot is switched off, so there is nowhere to put a profile step".to_string(),
+        );
+    }
+    for (index, (dpi, colour)) in enabled.iter().zip(entries) {
+        profile.slots[*index].dpi = *dpi;
+        profile.slots[*index].color = *colour;
+    }
+    Ok(())
 }
 
 /// Patch the current profile, write it back, and hand the written profile on.

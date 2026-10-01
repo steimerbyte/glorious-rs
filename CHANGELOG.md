@@ -1,5 +1,44 @@
 # Changelog
 
+## Unreleased
+
+### Interface
+
+- The window is drawn from a theme rather than from egui's defaults. Colours,
+  corner radii, spacing and text sizes are set in one place, so a colour appears
+  once in the source. Sections are cards with a hairline border and an accent
+  stripe on the one card that is being worked on, and the dark scheme is chosen
+  regardless of the system preference: a light window would put LED colours on
+  white, which is a different picture from the one the user sees on the desk.
+- A preview strip shows what the profile will look like, drawn from the same
+  bytes the write is built from. It shows a solid colour for the effects that
+  have one, moves through the slot colours for Glorious Mode, and pulses for the
+  effects whose colour source this project has not found. It says which of those
+  it is doing, because the device does not report whether a change took effect
+  and a preview that guessed would be a claim rather than a reading.
+- Sparks follow the pointer, and a starburst fires on every clicked control. The
+  two are separate effects rather than one at two sizes: a spark says the
+  pointer is here, a starburst says a button was pressed.
+- A profile list: a resolution and a colour per step, reordered and removed
+  individually, with one button that hands the whole list to the mouse. Steps
+  land on the enabled slots from the top, because a disabled slot is storage the
+  firmware keeps and does not light, so writing one produces a setting the user
+  cannot see. A list longer than the number of enabled slots is truncated, with
+  the window saying so, rather than refused: a profile being built is exactly
+  when a partial result is useful. Clicking a slot number in the table adds a
+  step with that resolution and the colour the slot already has.
+- The single-value preset buttons are gone. They filled every slot that was
+  switched off with one value, which is a different thing from mapping a list
+  onto the slots in use, and keeping both meant two ways to write the same bytes
+  with different rules.
+
+### Fixed
+
+- A pointer held still over a control would have kept laying sparks forever. The
+  trail ages out after a fraction of a second, so a still pointer looked like a
+  fresh arrival every frame, and the window never stopped repainting. Movement is
+  the only trigger now, and a test holds it.
+
 ## 1.1.0
 
 The lighting block of the configuration blob is measured further, and three

@@ -8,6 +8,7 @@ use glorious::device::{DeviceState, HidMouse};
 use glorious::protocol::{
     COLOR_SLOT_BASE, NUM_DPI_SLOTS, RgbEffect, raw_to_dpi, rgb_brightness_encode,
 };
+use glorious::sparks;
 use glorious::transport::HidTransport;
 use glorious::ui;
 use glorious::worker::{Command, Reply, Worker};
@@ -105,15 +106,28 @@ fn main() -> eframe::Result<()> {
     }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([520.0, 640.0])
-            .with_min_inner_size([420.0, 480.0]),
+            .with_inner_size(glorious::theme::WINDOW_SIZE)
+            .with_min_inner_size(glorious::theme::WINDOW_MIN_SIZE),
         ..Default::default()
     };
 
     eframe::run_native(
         "Glorious Mouse",
         options,
-        Box::new(|_cc| Ok(Box::new(GloriousApp::new()))),
+        Box::new(|cc| {
+            // Dark always, and not "follow the system": the window is about a
+            // lit mouse on a desk, and a light scheme puts the LED colours on
+            // white, which is a different picture from the one the user sees.
+            cc.egui_ctx.set_theme(egui::ThemePreference::Dark);
+            // The style is installed once rather than per frame. egui keeps it,
+            // and reapplying it every frame would be work for nothing. Going
+            // through `style_mut_of` rather than assigning a whole style means
+            // only the dark one is touched, so a light theme set anywhere else
+            // would not be silently overwritten by the other one.
+            cc.egui_ctx
+                .style_mut_of(egui::Theme::Dark, |style| *style = glorious::theme::style());
+            Ok(Box::new(GloriousApp::new()))
+        }),
     )
 }
 
@@ -738,11 +752,15 @@ struct GloriousApp {
     worker: Worker,
     /// Set while a change is being written, so the window can show progress.
     saving: bool,
-    /// Slot the preset buttons write to, so they have a target before one is
-    /// picked in the table. Falls back to the slot the mouse is using.
-    preset_slot: Option<usize>,
     /// The burst of paper shown when a colour is set.
     confetti: confetti::Confetti,
+    /// Sparks under the pointer and starbursts on a clicked control.
+    sparks: sparks::Sparks,
+    /// Where the pointer was last frame, so a movement can be told from a still
+    /// pointer. Without it a pointer held still over a control would keep laying
+    /// sparks, because a hover is not a movement and the two are not the same
+    /// thing here.
+    last_pointer: Option<egui::Pos2>,
 }
 
 impl GloriousApp {
@@ -753,8 +771,9 @@ impl GloriousApp {
             state: AppState::default(),
             worker,
             saving: false,
-            preset_slot: None,
             confetti: confetti::Confetti::default(),
+            sparks: sparks::Sparks::default(),
+            last_pointer: None,
         }
     }
 
@@ -792,22 +811,20 @@ impl GloriousApp {
                 .request(Command::SetEffectBrightness { mode_byte });
             self.saving = true;
         }
-        if let Some(slot) = actions.select_slot {
-            // The picked slot is remembered so the preset buttons have a target.
-            self.preset_slot = Some(slot);
-        }
-        if let Some(dpi) = actions.apply_preset {
-            let slot = self
-                .preset_slot
-                .or_else(|| {
-                    self.state
-                        .device
-                        .as_ref()
-                        .and_then(|d| d.profile.active_slot_index())
-                })
-                .unwrap_or(0);
-            self.worker.request(Command::ApplyPreset { slot, dpi });
+        // The profile list. It needs the device state as it is now: which slots
+        // are on decides where each entry lands, and the worker reads that
+        // itself rather than being told a slot number that could be stale.
+        if let Some(entries) = actions.apply_profile {
+            self.worker.request(Command::ApplyProfile { entries });
             self.saving = true;
+        }
+        // A slot clicked in the table starts a list entry, carrying the colour
+        // that slot already has so the user only has to change what is wrong.
+        if let Some((dpi, colour)) = actions.add_step_from_slot {
+            self.state
+                .draft
+                .entries
+                .push(glorious::app::PresetEntry { dpi, colour });
         }
         if let Some(ms) = actions.save_debounce {
             self.worker.request(Command::SetDebounce { ms });
@@ -840,8 +857,8 @@ impl eframe::App for GloriousApp {
         }
 
         self.state.reload_requested = false;
-        if self.saving || self.confetti.is_active() {
-            // Repainting is requested while the burst is falling, because the
+        if self.saving || self.confetti.is_active() || self.sparks.is_active() {
+            // Repainting is requested while anything is moving, because the
             // pieces move on their own: without this the window would only update
             // when the pointer moves and the burst would freeze mid-air.
             root.ctx().request_repaint();
@@ -857,6 +874,45 @@ impl eframe::App for GloriousApp {
                 root.ctx().content_rect().center(),
             );
         }
+        // A starburst on every control that was clicked, at the pointer. A
+        // window with two of these at once is a deliberate clatter rather than an
+        // accident, and each is separate because two controls clicked in the
+        // same frame are two things that happened.
+        for position in &actions.clicks {
+            self.sparks.starburst(*position);
+        }
+
+        // Sparks follow the pointer, so where it is has to be read from this
+        // frame's input.
+        //
+        // egui reports the pointer in the window's own coordinates, which is
+        // also what `layer_painter` draws in, so no conversion is needed here.
+        // `hover_pos` is `None` when the pointer is outside the window or over
+        // nothing, and that is when the trail stops.
+        //
+        // Read through `root`, not through the inner `Ui` of the scroll area:
+        // the same context, but the outer one is the one that spans the window.
+        let pointer = root.ctx().input(|i| i.pointer.hover_pos());
+        let down = root.ctx().input(|i| i.pointer.any_down());
+        match pointer {
+            Some(position) => {
+                let moved = match self.last_pointer {
+                    Some(last) => last.distance(position) > 0.5,
+                    None => false,
+                };
+                // A pointer held down over a button is dragging it, not
+                // hovering, and laying sparks during a drag would draw over the
+                // thing being dragged.
+                self.sparks.at_pointer(position, moved, !down);
+                self.last_pointer = Some(position);
+            }
+            None => {
+                self.sparks.clear_pointer();
+                self.last_pointer = None;
+            }
+        }
+
+        self.sparks.draw(root, delta_seconds);
         self.confetti.draw(root, delta_seconds);
         self.dispatch(actions);
     }

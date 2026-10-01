@@ -43,6 +43,10 @@ parts were measured on real hardware and which are still open.
 - Reads sensor, report rate, debounce, the DPI slots and their LED colours
 - Writes DPI, slot enable, slot colour, report rate, lighting effect, the
   brightness of the effect, the colour of a solid lighting effect, and debounce
+- Applies a whole profile in one go: a list of steps, each a resolution and a
+  colour, written to the enabled slots from the top
+- Shows a preview of the lighting, drawn from the same bytes the write is built
+  from
 - Offers the ten lighting effects that work on this mouse, with the names the
   vendor software uses
 - Shows device name, USB ID, firmware and the active onboard profile
@@ -52,6 +56,37 @@ six red and the mouse went red. The solid colour editor is hidden for it and the
 slots are where the colours are set. The seven colour breathing is treated the
 same way, on the strength of what it is named rather than on a measurement of
 its own; see [Open questions](#open-questions).
+
+## The window
+
+The look is set in `src/theme.rs` and the preview in `src/preview.rs`, so the
+drawing code in `src/ui.rs` is about layout and about what a control does rather
+than about how it looks.
+
+Two things in the window are worth explaining because they are not decoration.
+
+**The preview strip is drawn from the profile, not read back from the mouse.** The
+device reports the configuration blob unchanged after a write, so a read cannot
+confirm that anything landed. The strip therefore shows what was asked for, built
+from the same bytes the write is built from, and the window says so in its
+tooltip. For a solid effect it shows the colour in bytes 57 to 59. For Glorious
+Mode it moves through the slot colours, which is measured. For the effects whose
+colour source this project has not found it pulses the slot colours and says that
+is what it is doing, rather than imitating an animation that was never measured.
+
+**Sparks and starbursts are two effects, not one at two sizes.** A spark follows
+the pointer and says the pointer is here; a starburst fires on a clicked control
+and says that button was pressed. Movement is the only trigger for a spark,
+because a pointer held still over a control would otherwise keep producing them
+and the window would never stop repainting. A pointer held down is dragging
+rather than hovering, and draws nothing.
+
+**Steps land on the enabled slots from the top.** A disabled slot is storage the
+firmware keeps and does not light, so writing one produces a setting the user
+cannot see and the profile they asked for is not the profile they get. A list
+longer than the number of enabled slots is truncated and the window says so,
+rather than refused: a profile being built is exactly when a partial result is
+useful.
 
 Button remapping, macros and lift-off distance are not implemented yet.
 
@@ -101,6 +136,11 @@ from the device. It lands in byte 56 for a solid effect and in byte 60 for the
 seven colour breathing. An effect with no measured brightness field refuses the
 value instead of writing it somewhere unmeasured, and effect 6 is refused
 outright because it leaves the LEDs dark.
+
+Both hex arguments are read as hex, `RRGGBB` and `BB` alike, and the brightness
+prints back the way it was given. That matters because `0x40` is one of the
+three values with a reading behind it: read as a decimal `40` it would be
+`0x28`, which is one of the values that were never looked at.
 
 ## How it talks to the mouse
 

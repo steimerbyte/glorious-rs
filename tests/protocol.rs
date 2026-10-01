@@ -542,6 +542,157 @@ fn the_two_effects_keep_their_own_brightness_byte() {
 }
 
 #[test]
+fn a_profile_list_lands_on_the_enabled_slots_in_order() {
+    use glorious::worker::apply_profile;
+
+    // The real blob has one slot enabled, the sixth. A list of three must go
+    // onto slots one to three, not onto the sixth and then nowhere: the sixth
+    // is the only one the mouse lights, so writing there is what a user means by
+    // "give me a three step profile".
+    let mut profile = Profile::parse(&REAL_MODEL_O_BLOB).expect("blob should decode");
+    for index in 0..3 {
+        profile.slots[index].disabled = false;
+    }
+    apply_profile(
+        &mut profile,
+        &[(400, [1, 2, 3]), (1600, [4, 5, 6]), (10000, [7, 8, 9])],
+    )
+    .expect("three steps into six slots should fit");
+
+    for index in 0..3 {
+        assert_eq!(
+            profile.slots[index].dpi,
+            [400, 1600, 10000][index],
+            "step {} must land on the enabled slot in the same position",
+            index + 1
+        );
+        assert_eq!(
+            profile.slots[index].color,
+            [[1, 2, 3], [4, 5, 6], [7, 8, 9]][index],
+            "the colour travels with its resolution, not separately"
+        );
+    }
+    // The slots past the list are untouched, not cleared: a three step profile
+    // must not wipe a six step one that was already there.
+    assert_eq!(
+        profile.slots[3].dpi, 3200,
+        "slots past the list keep their value"
+    );
+    assert_eq!(
+        profile.slots[5].dpi, 10000,
+        "including the enabled slot further up"
+    );
+}
+
+#[test]
+fn a_profile_list_longer_than_the_enabled_slots_is_truncated_not_refused() {
+    use glorious::worker::apply_profile;
+
+    // Six steps against a mouse with one slot on. Refusing this would leave the
+    // user with nothing while building a profile, which is the moment a preset
+    // is most useful.
+    let mut profile = Profile::parse(&REAL_MODEL_O_BLOB).expect("blob should decode");
+    apply_profile(
+        &mut profile,
+        &[
+            (400, [1, 1, 1]),
+            (800, [2, 2, 2]),
+            (1600, [3, 3, 3]),
+            (3200, [4, 4, 4]),
+            (5000, [5, 5, 5]),
+            (10000, [6, 6, 6]),
+        ],
+    )
+    .expect("a long list against few slots is truncated, not refused");
+
+    assert_eq!(
+        profile.slots[5].dpi, 400,
+        "the first step goes to the only slot on"
+    );
+    assert_eq!(profile.slots[5].color, [1, 1, 1], "with its own colour");
+}
+
+#[test]
+fn a_profile_list_is_refused_when_there_is_nowhere_to_put_it() {
+    use glorious::worker::apply_profile;
+
+    // Every slot off: the device has no lit slot to write a step to, so writing
+    // into the storage slots would produce a profile the mouse never shows. That
+    // is a failure worth reporting rather than a silent no-op.
+    let mut profile = Profile::parse(&REAL_MODEL_O_BLOB).expect("blob should decode");
+    for slot in &mut profile.slots {
+        slot.disabled = true;
+    }
+    let error = apply_profile(&mut profile, &[(400, [1, 2, 3])])
+        .expect_err("no enabled slot means nowhere to apply a step");
+    assert!(
+        error.contains("switched off"),
+        "the message says what to fix, got: {error}"
+    );
+}
+
+#[test]
+fn a_profile_list_writes_its_colours_exactly_as_the_window_showed_them() {
+    use glorious::worker::apply_profile;
+
+    // Slot colours are a special case among the colour fields. `parse` reads
+    // them unconverted, because the device's own order is what it stores, and
+    // `serialize` writes them back unconverted for the same reason: converting
+    // there would turn every colour into a different one on every save. Only the
+    // lighting block's colour at 57 to 59 is converted, because the colour
+    // picker hands the window a normal RGB value for that one.
+    //
+    // So a list built in the window has to reach the bytes unchanged, and this
+    // is the test that says so. A conversion added here would be the second
+    // swap on a field that is already in the right order, and green would come
+    // out blue on every save.
+    let mut profile = Profile::parse(&REAL_MODEL_O_BLOB).expect("blob should decode");
+    profile.slots[5].disabled = false;
+    apply_profile(&mut profile, &[(10000, [0x00, 0xb4, 0xff])]).expect("one step fits");
+
+    let rendered = profile
+        .serialize(REAL_MODEL_O_BLOB.len())
+        .expect("should serialise");
+    let base = COLOR_SLOT_BASE + 5 * 3;
+    assert_eq!(
+        &rendered[base..base + 3],
+        &[0x00, 0xb4, 0xff],
+        "a slot colour reaches the device as the window showed it"
+    );
+
+    // And the round trip: reading it back gives the same value, which is what
+    // makes the picker show the same colour after a reload.
+    let reread = Profile::parse(&rendered[..REAL_MODEL_O_BLOB.len()]).expect("redecodes");
+    assert_eq!(
+        reread.slots[5].color,
+        [0x00, 0xb4, 0xff],
+        "a reload shows the colour that was chosen, not a swapped one"
+    );
+}
+
+#[test]
+fn a_slot_colour_survives_a_save_and_a_reload_unchanged() {
+    // The failure this guards against is invisible for red, which is why it
+    // survived the first version: red is the one channel a swap does not move,
+    // so a tool with the order backwards still shows red correctly. Green and
+    // blue are the channels that show it.
+    let profile = Profile::parse(&REAL_MODEL_O_BLOB).expect("blob should decode");
+    let rendered = profile
+        .serialize(REAL_MODEL_O_BLOB.len())
+        .expect("should serialise");
+    let back = Profile::parse(&rendered[..REAL_MODEL_O_BLOB.len()]).expect("redecodes");
+    assert_eq!(
+        back.slots[0].color, profile.slots[0].color,
+        "a save and a reload must not move the colour channels"
+    );
+    assert_eq!(
+        &rendered[COLOR_SLOT_BASE..COLOR_SLOT_BASE + 3],
+        &REAL_MODEL_O_BLOB[COLOR_SLOT_BASE..COLOR_SLOT_BASE + 3],
+        "and the bytes on the wire must be the ones the device reported"
+    );
+}
+
+#[test]
 fn the_defaults_are_what_the_hardware_ships_with_not_what_the_driver_guesses() {
     // A profile this tool has never read is built from these values, so each one
     // that differs from what a real mouse stores is written over the user's

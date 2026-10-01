@@ -7,8 +7,11 @@
 pub mod app;
 pub mod confetti;
 pub mod device;
+pub mod preview;
 pub mod profile;
 pub mod protocol;
+pub mod sparks;
+pub mod theme;
 pub mod transport;
 pub mod ui;
 pub mod worker;
