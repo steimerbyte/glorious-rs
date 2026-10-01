@@ -87,6 +87,9 @@ pub enum RgbEffect {
     Breathing7,
     Tail,
     Breathing,
+    /// Dark on a Model O: selecting it turns the LEDs off, and the vendor
+    /// software does not offer it. Kept so that a stored 0x06 still reads back
+    /// as what it is, but never offered and never written.
     Constant,
     Rave,
     Random,
@@ -153,7 +156,12 @@ impl RgbEffect {
     }
 
     /// Every effect offered in the menu, in the order the vendor lists them.
-    pub fn offered() -> [RgbEffect; 11] {
+    ///
+    /// `Constant` (0x06) is deliberately missing. It leaves the LEDs dark on a
+    /// Model O, and the vendor software does not offer it either. It is kept in
+    /// the enum so that a stored 0x06 still reads back as what it is instead of
+    /// as an unknown byte, but it is never offered and never written.
+    pub fn offered() -> [RgbEffect; 10] {
         [
             RgbEffect::Glorious,
             RgbEffect::Single,
@@ -164,7 +172,6 @@ impl RgbEffect {
             RgbEffect::Random,
             RgbEffect::Wave,
             RgbEffect::Breathing1,
-            RgbEffect::Constant,
             RgbEffect::Off,
         ]
     }
@@ -175,7 +182,7 @@ impl RgbEffect {
     /// colour leaves the mouse dark, so the per-slot colours only matter to the
     /// effects that use them.
     pub fn uses_slot_colours(self) -> bool {
-        matches!(self, RgbEffect::Constant | RgbEffect::Breathing7)
+        matches!(self, RgbEffect::Breathing7)
     }
 
     /// Whether this effect shows one colour for the whole mouse.

@@ -135,9 +135,12 @@ has to be adjusted for a different desk.
 
 The lighting effects were mapped this way. The names come from the ratbag driver,
 but two of them do not behave as documented: value 8 stays within the blue to cyan
-range instead of changing colour, and value 6 leaves the LEDs dark. The driver
+range instead of changing colour, and value 6 turns the LEDs off. The driver
 notes that neither is offered in the vendor software, which is consistent with
-what the mouse does.
+what the mouse does. Value 6 is therefore not offered here either, even though it
+is a value the device accepts: selecting it leaves the mouse dark and there is no
+reason to reach for it. It still reads back as what it is, so a profile written
+by something else is shown honestly rather than as an unknown byte.
 
 ## Keywords
 
