@@ -22,6 +22,12 @@ fn main() -> eframe::Result<()> {
     // colour that effect uses, and optionally a brightness byte. The brightness
     // is a whole mode byte, because only its high nibble was measured: the low
     // one changed nothing visible at 16, 32 or 64 and is carried through.
+    //
+    // Both the colour and the brightness are read as hex, the colour because
+    // that is how the tool prints and takes it everywhere, the brightness
+    // because the values that were measured are written in hex everywhere else.
+    // A brightness of `40` meaning `0x28` would be a trap, since 0x40 is one
+    // of the three values with a reading behind it.
     if first.as_deref() == Some("--set-effect") {
         let mut rest = std::env::args().skip(2);
         let effect: u8 = rest.next().and_then(|a| a.parse().ok()).unwrap_or(2);
@@ -29,14 +35,9 @@ fn main() -> eframe::Result<()> {
             .next()
             .and_then(|a| u32::from_str_radix(&a, 16).ok())
             .map(|v| [(v >> 16) as u8, (v >> 8) as u8, v as u8]);
-        let brightness = rest.next().and_then(|a| {
-            a.strip_prefix("0x")
-                .or_else(|| a.strip_prefix("0X"))
-                .unwrap_or(&a)
-                .parse::<u8>()
-                .ok()
-                .or_else(|| a.parse::<u8>().ok())
-        });
+        let brightness = rest
+            .next()
+            .and_then(|a| u8::from_str_radix(a.trim_start_matches("0x"), 16).ok());
         return set_effect(effect, colour, brightness);
     }
     // `--probe-slots` writes a distinct DPI into every slot, which is how the
