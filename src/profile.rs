@@ -61,11 +61,24 @@ impl Default for Profile {
             // a colour picker rather than a rainbow it cannot control.
             rgb_effect: Some(RgbEffect::Single),
             raw_effect_selector: 0x02,
-            rgb_glorious_mode: 0x13,
-            rgb_glorious_direction: 0x01,
-            rgb_single_mode: 0x13,
+            // These four defaults are what a real Model O with the vendor
+            // software defaults actually stores, read off a blob taken from one:
+            // 0x41, 0x00, 0x40 and 0x42 at bytes 54, 55, 56 and 60. The values
+            // that stood here before, 0x13 in each case, came from the ratbag
+            // driver's packing of speed and brightness into a nibble pair. That
+            // packing is not what this device does: byte 56 swept at 16, 32 and
+            // 64 lit the effect at rising brightness, and its low nibble did
+            // nothing at any of them.
+            //
+            // A default that differs from what the hardware ships with is a
+            // guess. It only bites when a blob cannot be read, because a read
+            // one overwrites every field here, but a guess that writes over the
+            // user's gradient direction is not a default worth keeping.
+            rgb_glorious_mode: 0x41,
+            rgb_glorious_direction: 0x00,
+            rgb_single_mode: 0x40,
             rgb_single_color: [255, 0, 0],
-            rgb_breathing7_mode: 0x13,
+            rgb_breathing7_mode: 0x42,
             rgb_breathing7_colors: [[0, 0, 0]; 7],
             lift_off_distance: 0xff,
         }

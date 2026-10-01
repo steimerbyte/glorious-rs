@@ -20,6 +20,8 @@ pub struct UiActions {
     pub save_rgb: Option<crate::protocol::RgbEffect>,
     /// Colour for an effect that shows one colour for the whole mouse.
     pub save_effect_colour: Option<[u8; 3]>,
+    /// Brightness for the effect that has a measured brightness byte.
+    pub save_effect_brightness: Option<u8>,
     /// Slot picked for the preset buttons.
     pub select_slot: Option<usize>,
     /// Resolution to hand to the slots the preset covers.
@@ -29,6 +31,16 @@ pub struct UiActions {
     /// dragged: a burst per frame of a drag would be a solid sheet of paper.
     pub saved_colours: Vec<(usize, [u8; 3])>,
 }
+
+/// Brightness values offered for a lighting effect.
+///
+/// Byte 56 was written one value at a time on a real Model O and the mouse
+/// photographed after each. Values 1, 2, 4, 8 and 16 left the LEDs dark, 32 lit
+/// them at about half and 64 lit them fully, with the red channel of the lit
+/// strip reading 231, 234 and 248. The full high nibble is offered as well
+/// because the breathing effect's own byte, 60, was lit at 0xff where 0x40 gave
+/// a visibly dimmer result.
+const BRIGHTNESS_STEPS: [u8; 5] = [0x00, 0x10, 0x20, 0x40, 0xff];
 
 /// Resolutions offered as one click, the ones that come up in practice.
 ///
@@ -317,9 +329,10 @@ fn draw_lighting(ui: &mut egui::Ui, state: &mut AppState, actions: &mut UiAction
     egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
         ui.set_width(ui.available_width());
 
-        // The effect is picked first, because what follows depends on it: a
-        // solid effect shows its own colour, while the others cycle colours the
-        // tool does not control.
+        // The effect is picked first, because what follows depends on it. Some
+        // effects show a colour of their own, some follow the DPI slot colours,
+        // and the rest cycle through colours held in bytes this tool does not
+        // model.
         let Some(effect) = current else {
             ui.label("The mouse reports a lighting effect this tool does not know. Choosing one replaces it.");
             ui.horizontal_wrapped(|ui| {
@@ -355,8 +368,55 @@ fn draw_lighting(ui: &mut egui::Ui, state: &mut AppState, actions: &mut UiAction
                 actions.save_effect_colour = Some(edited);
             }
             ui.label("Colour the whole mouse shows in this effect.");
+
+            // Byte 56 was measured one value at a time on a real mouse: 16, 32
+            // and 64 lit the effect at rising brightness, and the low nibble
+            // changed nothing visible. The control offers those steps rather
+            // than a continuous slider, because only those were observed and a
+            // slider would offer values nothing here has a reading for.
+            //
+            // The low nibble of the device's byte is carried through, so
+            // choosing a brightness here cannot clear a field this tool does
+            // not model.
+            let mode_byte = device.profile.rgb_single_mode;
+            let (brightness, low_nibble) = (mode_byte & 0xf0, mode_byte & 0x0f);
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Brightness");
+                ui.add_space(4.0);
+                for value in BRIGHTNESS_STEPS {
+                    let selected = value == brightness;
+                    if ui
+                        .selectable_label(selected, format!("{value:#04x}"))
+                        .clicked()
+                        && !selected
+                    {
+                        actions.save_effect_brightness = Some(
+                            crate::protocol::rgb_brightness_encode(value, low_nibble),
+                        );
+                    }
+                }
+            });
+            ui.label(
+                egui::RichText::new("Measured on a Model O: 0x10, 0x20 and 0x40 light the effect at rising brightness.")
+                    .color(egui::Color32::GRAY)
+                    .small(),
+            );
         } else if effect.uses_slot_colours() {
-            ui.label("Each lit slot shows its own colour. Set them in the DPI list above.");
+            // Glorious Mode and the seven colour breathing both follow the DPI
+            // list, so the hint says which. They are the same only in that they
+            // read the slot colours: measured, Glorious Mode lit red when all
+            // six slots were set red, and stayed the slot colour when the solid
+            // colour in the bytes behind this editor was set to a different
+            // value.
+            match effect {
+                crate::protocol::RgbEffect::Glorious => {
+                    ui.label("Moves through the DPI slot colours. Set them in the list above.");
+                }
+                _ => {
+                    ui.label("Each lit slot shows its own colour. Set them in the DPI list above.");
+                }
+            }
         } else {
             ui.label(match effect {
                 crate::protocol::RgbEffect::Off => "The lighting is off.",

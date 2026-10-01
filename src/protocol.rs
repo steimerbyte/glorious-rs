@@ -79,6 +79,12 @@ pub const COLOR_SLOT_BASE: usize = 29;
 /// writing the byte, photographing the mouse and comparing the frames: values 1,
 /// 3, 4, 5, 7 and 9 change colour over time, 10 changes brightness without
 /// changing hue, 2 holds one colour, and 0 and 6 turn the LEDs off.
+///
+/// Value 8 is the one that did not behave as its name suggests. `Random` was
+/// expected to animate through colours and stays inside the blue to cyan range
+/// across repeated photographs. It is still offered, because it does light the
+/// mouse, but it is not the effect the name promises and no attempt is made
+/// here to describe what it actually does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RgbEffect {
     Off,
@@ -188,11 +194,26 @@ impl RgbEffect {
 
     /// Whether this effect shows the per-slot colours, or its own instead.
     ///
-    /// Measured on a Model O: with a solid effect selected, changing a slot's
-    /// colour leaves the mouse dark, so the per-slot colours only matter to the
-    /// effects that use them.
+    /// Measured on a Model O, by setting all six slot colours to one value and
+    /// photographing the mouse under the effect:
+    ///
+    /// - all six slots red, Glorious Mode: a red mouse, fading towards the next
+    ///   colour across three frames a second apart
+    /// - all six slots blue, Glorious Mode: a warm yellow, which is the blend
+    ///   between the blue slots and the colour the effect was already on
+    ///
+    /// So Glorious Mode reads the slot colours and moves through them. It does
+    /// not read the single colour in bytes 57 to 59: with `ff8800` set there and
+    /// every slot left blue, the mouse stayed blue, and under the solid effects
+    /// the same value showed up as warm. That is why the solid colour editor is
+    /// hidden for this effect while its colour still follows the DPI list.
+    ///
+    /// Breathing with seven colours is listed here because it is the one other
+    /// effect that takes per-slot colours, and it does so for a different
+    /// reason: the seven colours it is named for are not in the bytes this tool
+    /// reads. See [`KNOWN_CONFIG_BYTES`] on bytes 61 to 81.
     pub fn uses_slot_colours(self) -> bool {
-        matches!(self, RgbEffect::Breathing7)
+        matches!(self, RgbEffect::Glorious | RgbEffect::Breathing7)
     }
 
     /// Whether this effect shows one colour for the whole mouse.
@@ -243,10 +264,26 @@ pub fn to_device_colour(colour: [u8; 3]) -> [u8; 3] {
 /// reported, because a zero written into an unknown field clears a setting the
 /// user never touched, and the device accepts that without complaining.
 ///
-/// Offsets 53 to 82 are the lighting effects. They are confirmed one field at a
-/// time: byte 53 selects the effect and bytes 57 to 59 are the colour a solid
-/// effect shows, both verified by watching the mouse. Bytes 54 to 56 and 60 to
-/// 82 are carried over untouched, because their layout is still a guess.
+/// Offsets 53 to 82 are the lighting effects. Each field in here was confirmed
+/// one at a time by writing it and photographing the mouse:
+///
+/// - 53 selects the effect
+/// - 56 is the brightness of the solid effects
+/// - 57 to 59 are the colour a solid effect shows
+/// - 60 is the brightness of the seven colour breathing effect
+///
+/// Byte 54 is not in the list even though its direction was measured. It was
+/// swept at 0, 128 and 255 under Glorious Mode and each value moved the
+/// gradient along the mouse, but the device stores 0x41 there while a profile
+/// this tool builds from scratch defaults to 0x13. A default that differs from
+/// what the hardware ships with is not a measurement, so writing the byte would
+/// silently replace a value the vendor chose. It is carried over instead.
+///
+/// Bytes 55 and 61 to 82 are carried over untouched as well. Byte 55 changed
+/// nothing visible at 0, 64, 128 or 255. The range 61 to 81 was tested harder
+/// than any other: all twenty-one bytes at zero still runs the breathing effect,
+/// and all twenty-one at 255 never once shows red or green, so it is not the
+/// seven colour table those offsets suggest.
 pub const KNOWN_CONFIG_BYTES: &[usize] = &[
     9,  // sensor
     10, // report rate and X/Y independent flag
@@ -257,12 +294,13 @@ pub const KNOWN_CONFIG_BYTES: &[usize] = &[
     13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
     // 29..53 hold one RGB colour per DPI slot.
     29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
-    // Lighting: the effect selector and the colour a solid effect shows.
-    53, 57, 58, 59,
+    // Lighting: the effect selector, the two brightness fields and the colour a
+    // solid effect shows.
+    53, 56, 57, 58, 59, 60,
 ];
 
-/// Byte offsets covered by [`KNOWN_CONFIG_BYTES`] as a range, for tests.
-pub const KNOWN_CONFIG_RANGE: std::ops::RangeInclusive<usize> = 9..=52;
+/// First and last byte offset covered by [`KNOWN_CONFIG_BYTES`], for tests.
+pub const KNOWN_CONFIG_RANGE: std::ops::RangeInclusive<usize> = 9..=60;
 
 /// Report rate stored in the low nibble of the rate byte.
 pub const REPORT_RATES: [(u8, u16); 4] = [(0x1, 125), (0x2, 250), (0x3, 500), (0x4, 1000)];
@@ -355,12 +393,27 @@ pub fn report_rate_to_raw(hz: u16) -> Option<u8> {
         .map(|entry| entry.0)
 }
 
-/// Split a mode byte into speed and brightness.
-pub fn rgb_mode_decode(byte: u8) -> (u8, u8) {
-    (byte & 0x0f, (byte >> 4) & 0x0f)
+/// Read the brightness out of a lighting mode byte.
+///
+/// Bytes 56 and 60 both hold the brightness of their effect in the high nibble,
+/// and both were measured one value at a time on a real mouse, writing the byte
+/// and photographing the result:
+///
+/// - byte 56 at 16, 32 and 64 lit the solid effect at rising brightness, and the
+///   red channel of the lit strip went 231, 234, 248 across the three
+/// - byte 60 at 0, 0x40 and 0xff lit the breathing effect in 1, 2 and 4 frames
+///   out of eighteen taken a second apart, with peak lit pixel counts of 1171,
+///   820 and 1508
+///
+/// The low nibble changed nothing visible at any of those values on either byte,
+/// so the field is returned as the whole byte and left alone when written. It
+/// is not a speed setting: that is a guess inherited from the ratbag driver,
+/// which packs speed and brightness into one nibble pair.
+pub fn rgb_brightness(byte: u8) -> u8 {
+    byte
 }
 
-/// Pack speed and brightness into a mode byte.
-pub fn rgb_mode_encode(speed: u8, brightness: u8) -> u8 {
-    (speed & 0x0f) | ((brightness & 0x0f) << 4)
+/// Combine a brightness back into a mode byte, keeping the low nibble.
+pub fn rgb_brightness_encode(brightness: u8, low_nibble: u8) -> u8 {
+    (brightness & 0xf0) | (low_nibble & 0x0f)
 }

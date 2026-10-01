@@ -36,6 +36,15 @@ pub enum Command {
     SetEffectColor {
         color: [u8; 3],
     },
+    /// Brightness of the effect that has one, as a whole mode byte.
+    ///
+    /// Bytes 56 and 60 were measured one value at a time on a real mouse: 16,
+    /// 32 and 64 lit the solid effect at rising brightness, and the low nibble
+    /// changed nothing visible at any of them. The byte is therefore carried
+    /// over whole and only its high nibble is written.
+    SetEffectBrightness {
+        mode_byte: u8,
+    },
     /// Set one resolution on the slot the user picked and the ones that are off.
     ApplyPreset {
         slot: usize,
@@ -183,6 +192,27 @@ fn apply(mouse: &mut HidMouse, command: Command) -> Reply {
             profile.rgb_single_color = color;
             Ok(())
         }),
+        // Which byte holds the brightness depends on the effect that is
+        // selected, and the two measured fields are 56 and 60. An effect with
+        // neither keeps whatever the device had, so a brightness chosen under
+        // one effect cannot silently become a write to the other one.
+        Command::SetEffectBrightness { mode_byte } => {
+            with_profile(mouse, |profile| match profile.rgb_effect {
+                Some(crate::protocol::RgbEffect::Breathing7) => {
+                    profile.rgb_breathing7_mode = mode_byte;
+                    Ok(())
+                }
+                Some(effect) if effect.has_solid_colour() => {
+                    profile.rgb_single_mode = mode_byte;
+                    Ok(())
+                }
+                Some(effect) => Err(format!(
+                    "{} has no brightness field this tool has measured",
+                    effect.name()
+                )),
+                None => Err("no lighting effect is selected".to_string()),
+            })
+        }
         Command::ApplyPreset { slot, dpi } => with_profile(mouse, |profile| {
             let slots = &mut profile.slots;
             if slot >= slots.len() {

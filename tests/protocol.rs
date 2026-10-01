@@ -372,9 +372,28 @@ fn an_unknown_effect_byte_is_not_written_back_as_zero() {
 }
 
 #[test]
-fn mode_bytes_split_into_speed_and_brightness() {
-    assert_eq!(rgb_mode_decode(0x13), (3, 1));
-    assert_eq!(rgb_mode_encode(3, 1), 0x13);
+fn a_mode_byte_is_carried_over_whole_because_only_its_brightness_is_known() {
+    // The driver packs speed and brightness into the two nibbles, and the first
+    // version of this tool believed that. It does not hold here: writing 16, 32
+    // and 64 to byte 56 lit the solid effect at rising brightness, and the low
+    // nibble changed nothing visible at any of them. So the byte is kept whole
+    // and only the brightness is described, and packing it must not lose the
+    // low nibble the device had.
+    for byte in [0x00, 0x10, 0x20, 0x40, 0x13, 0x4a, 0xff] {
+        assert_eq!(rgb_brightness(byte), byte);
+        assert_eq!(rgb_brightness_encode(byte, byte & 0x0f), byte);
+    }
+    assert_eq!(rgb_brightness_encode(0x40, 0x07), 0x47);
+}
+
+#[test]
+fn glorious_mode_reads_the_slot_colours() {
+    // Measured by setting all six slot colours to red and photographing the
+    // mouse under Glorious Mode: it went red. The solid colour in bytes 57 to 59
+    // is not what it shows, and with `ff8800` there the mouse stayed the colour
+    // the slots were set to.
+    assert!(RgbEffect::Glorious.uses_slot_colours());
+    assert!(!RgbEffect::Glorious.has_solid_colour());
 }
 
 #[test]
@@ -401,11 +420,11 @@ fn setting_debounce_writes_the_halved_value() {
 
 #[test]
 fn a_write_leaves_bytes_it_does_not_model_alone() {
-    // The lighting block is only partly mapped: bytes 53 to 59 are understood,
-    // but 54 to 56 and 60 onwards are still a guess. A colour change must not
-    // clear those. The device accepts a blob with zeros there and gives no hint
-    // that a setting was lost, so this is the failure that cost this project's
-    // first colour change.
+    // The lighting block is partly mapped. Byte 53 selects the effect, 57 to 59
+    // are its colour and 56 and 60 are a brightness each. The rest of it is not,
+    // and a colour change must not clear that. The device accepts a blob with
+    // zeros there and gives no hint that a setting was lost, so this is the
+    // failure that cost this project's first colour change.
     let before = REAL_MODEL_O_BLOB;
     let original = Profile::parse(&before).expect("blob should decode");
     let mut changed = original.clone();
@@ -433,16 +452,34 @@ fn a_write_leaves_bytes_it_does_not_model_alone() {
     );
     // The transfer is 520 bytes, the payload only 130, so the comparison has
     // to stop at the end of the payload. The padding after it is always zero.
-    for index in 54..=56 {
-        assert_eq!(
-            blob[index], before[index],
-            "byte {index} is not mapped yet and must be carried over"
-        );
-    }
     assert_eq!(
-        &blob[60..before.len()],
-        &before[60..],
-        "the lighting block from byte 60 on must survive a colour change"
+        blob[55], before[55],
+        "byte 55 is not mapped and must be carried over"
+    );
+    // Bytes 56 and 60 are brightnesses and are written, but this change does not
+    // touch them, so they have to arrive unchanged. A brightness that appears
+    // out of nowhere is as bad as one that disappears.
+    assert_eq!(
+        blob[56], before[56],
+        "the solid effect brightness must survive a colour change"
+    );
+    assert_eq!(
+        blob[60], before[60],
+        "the breathing brightness must survive a colour change"
+    );
+    // Bytes 61 to 81 are the range whose meaning is unknown. They were tested:
+    // all zero still runs the breathing effect and all 255 never shows red, so
+    // they are not the colour table their offsets suggest. They are carried
+    // over, and this is the test that keeps it that way.
+    assert_eq!(
+        &blob[61..82],
+        &before[61..82],
+        "the range with no known meaning must survive every write"
+    );
+    assert_eq!(
+        &blob[82..before.len()],
+        &before[82..],
+        "everything after the lighting block must survive a colour change"
     );
 
     let after = Profile::parse(&blob).expect("decode what came back");
@@ -450,5 +487,107 @@ fn a_write_leaves_bytes_it_does_not_model_alone() {
     assert_eq!(
         after.rgb_breathing7_colors, original.rgb_breathing7_colors,
         "breathing colours survive"
+    );
+}
+
+#[test]
+fn a_solid_effect_brightness_lands_in_byte_56_and_keeps_the_low_nibble() {
+    // Byte 56 is the brightness of the solid effects and was measured one value
+    // at a time on a real mouse. Its low nibble made no visible difference, so
+    // it is not a speed field this tool writes, and a brightness change has to
+    // carry it through rather than clear it.
+    let original = Profile::parse(&REAL_MODEL_O_BLOB).expect("blob should decode");
+    let mut profile = original.clone();
+    profile.rgb_effect = Some(RgbEffect::Single);
+    // A byte whose low nibble the device had set: 0x47 is brightness 0x40.
+    profile.rgb_single_mode = 0x47;
+
+    let mut mouse = Mouse::new(FakeTransport::new());
+    mouse
+        .write_profile(&profile)
+        .expect("device should accept it");
+    let blob = mouse.read_config(0x11).expect("read back what was written");
+
+    assert_eq!(
+        blob[56], 0x47,
+        "a brightness write must not clear the low nibble the device had"
+    );
+    assert_eq!(
+        blob[60], REAL_MODEL_O_BLOB[60],
+        "the other effect's brightness must not be touched"
+    );
+}
+
+#[test]
+fn the_two_effects_keep_their_own_brightness_byte() {
+    // The solid effects and the seven colour breathing hold a brightness each,
+    // in bytes 56 and 60. Writing one while the other is selected is the
+    // mistake that would show up as a brightness change the user did not make.
+    let mut profile = Profile::parse(&REAL_MODEL_O_BLOB).expect("blob should decode");
+    profile.rgb_effect = Some(RgbEffect::Breathing7);
+    profile.rgb_single_mode = 0xff;
+    profile.rgb_breathing7_mode = 0x20;
+
+    let mut mouse = Mouse::new(FakeTransport::new());
+    mouse
+        .write_profile(&profile)
+        .expect("device should accept it");
+    let blob = mouse.read_config(0x11).expect("read back what was written");
+
+    assert_eq!(blob[56], 0xff, "byte 56 is the solid effects' own value");
+    assert_eq!(
+        blob[60], 0x20,
+        "byte 60 is the breathing effect's own value"
+    );
+}
+
+#[test]
+fn the_defaults_are_what_the_hardware_ships_with_not_what_the_driver_guesses() {
+    // A profile this tool has never read is built from these values, so each one
+    // that differs from what a real mouse stores is written over the user's
+    // setting the first time anything is saved. They stood at 0x13 before,
+    // taken from the ratbag driver's packing of speed and brightness into a
+    // nibble pair, against a device that stores 0x41, 0x00, 0x40 and 0x42.
+    let defaults = Profile::default();
+    let shipped = Profile::parse(&REAL_MODEL_O_BLOB).expect("blob should decode");
+
+    assert_eq!(
+        defaults.rgb_glorious_mode, shipped.rgb_glorious_mode,
+        "byte 54: a default the hardware does not use would reset the gradient"
+    );
+    assert_eq!(defaults.rgb_single_mode, shipped.rgb_single_mode, "byte 56");
+    assert_eq!(
+        defaults.rgb_breathing7_mode, shipped.rgb_breathing7_mode,
+        "byte 60"
+    );
+    assert_eq!(defaults.rgb_glorious_direction, 0x00, "byte 55");
+}
+
+#[test]
+fn byte_54_is_never_written_even_though_its_direction_was_measured() {
+    // The gradient direction was swept and 0, 128 and 255 each moved the
+    // gradient along the mouse, which is a real measurement. It is still not
+    // written, because no path in the app changes it, and a field with a
+    // measured meaning but no user control is one the device's own value should
+    // keep. Writing it would put a default over a value the vendor chose.
+    let mut profile = Profile::parse(&REAL_MODEL_O_BLOB).expect("blob should decode");
+    profile.rgb_glorious_mode = 0xff;
+    profile.rgb_effect = Some(RgbEffect::Single);
+    profile.slots[0].color = [9, 9, 9];
+
+    let mut mouse = Mouse::new(FakeTransport::new());
+    mouse
+        .write_profile(&profile)
+        .expect("device should accept it");
+    let blob = mouse.read_config(0x11).expect("read back what was written");
+
+    assert_eq!(
+        blob[54], REAL_MODEL_O_BLOB[54],
+        "the gradient direction must survive a write that has no control for it"
+    );
+    assert_eq!(
+        &blob[29..32],
+        &[9, 9, 9],
+        "and the write that was asked for still has to happen"
     );
 }

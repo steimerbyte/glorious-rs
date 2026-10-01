@@ -5,7 +5,9 @@ use eframe::egui;
 use glorious::app::AppState;
 use glorious::confetti;
 use glorious::device::{DeviceState, HidMouse};
-use glorious::protocol::{COLOR_SLOT_BASE, NUM_DPI_SLOTS, RgbEffect, raw_to_dpi};
+use glorious::protocol::{
+    COLOR_SLOT_BASE, NUM_DPI_SLOTS, RgbEffect, raw_to_dpi, rgb_brightness_encode,
+};
 use glorious::transport::HidTransport;
 use glorious::ui;
 use glorious::worker::{Command, Reply, Worker};
@@ -16,8 +18,10 @@ fn main() -> eframe::Result<()> {
     if first.as_deref() == Some("--dpi") {
         return print_settings();
     }
-    // `--set-effect N [RRGGBB]` writes the effect selector and optionally the
-    // colour that effect uses.
+    // `--set-effect N [RRGGBB] [BB]` writes the effect selector, optionally the
+    // colour that effect uses, and optionally a brightness byte. The brightness
+    // is a whole mode byte, because only its high nibble was measured: the low
+    // one changed nothing visible at 16, 32 or 64 and is carried through.
     if first.as_deref() == Some("--set-effect") {
         let mut rest = std::env::args().skip(2);
         let effect: u8 = rest.next().and_then(|a| a.parse().ok()).unwrap_or(2);
@@ -25,7 +29,15 @@ fn main() -> eframe::Result<()> {
             .next()
             .and_then(|a| u32::from_str_radix(&a, 16).ok())
             .map(|v| [(v >> 16) as u8, (v >> 8) as u8, v as u8]);
-        return set_effect(effect, colour);
+        let brightness = rest.next().and_then(|a| {
+            a.strip_prefix("0x")
+                .or_else(|| a.strip_prefix("0X"))
+                .unwrap_or(&a)
+                .parse::<u8>()
+                .ok()
+                .or_else(|| a.parse::<u8>().ok())
+        });
+        return set_effect(effect, colour, brightness);
     }
     // `--probe-slots` writes a distinct DPI into every slot, which is how the
     // number of slots the device really keeps is established: the vendor
@@ -388,14 +400,16 @@ fn calibrate_length() -> eframe::Result<()> {
     Ok(())
 }
 
-/// Write the lighting effect selector and report what the device stored.
-///
-/// Write the lighting effect selector and, when given, the effect's own colour.
+/// Write the lighting effect selector, its colour and its brightness.
 ///
 /// The user recognises the result by what the mouse shows. That is what maps
 /// the fields: the device reports them back unchanged, so a read cannot confirm
 /// which byte ended up driving the LEDs.
-fn set_effect(effect_byte: u8, colour: Option<[u8; 3]>) -> eframe::Result<()> {
+fn set_effect(
+    effect_byte: u8,
+    colour: Option<[u8; 3]>,
+    brightness: Option<u8>,
+) -> eframe::Result<()> {
     let transport = match HidTransport::open(None, None) {
         Ok(transport) => transport,
         Err(error) => {
@@ -449,6 +463,29 @@ fn set_effect(effect_byte: u8, colour: Option<[u8; 3]>) -> eframe::Result<()> {
         );
     } else {
         println!("effect was {previous}, writing {}", effect.name());
+    }
+    // The brightness lands in a different byte per effect, and only the two
+    // effects that have one were measured. An effect without a measured field is
+    // refused rather than written, because a brightness that quietly goes
+    // somewhere else is a change the user did not ask for.
+    if let Some(brightness) = brightness {
+        let current_low = match effect {
+            RgbEffect::Breathing7 => profile.rgb_breathing7_mode & 0x0f,
+            other if other.has_solid_colour() => profile.rgb_single_mode & 0x0f,
+            other => {
+                eprintln!(
+                    "{} has no brightness field that has been measured, so {brightness:#04x} is not written",
+                    other.name()
+                );
+                std::process::exit(1);
+            }
+        };
+        let mode_byte = rgb_brightness_encode(brightness, current_low);
+        match effect {
+            RgbEffect::Breathing7 => profile.rgb_breathing7_mode = mode_byte,
+            _ => profile.rgb_single_mode = mode_byte,
+        }
+        println!("brightness {brightness:#04x}, low nibble {current_low:#04x} kept");
     }
     if let Err(error) = mouse.write_profile(&profile) {
         eprintln!("write failed: {error}");
@@ -747,6 +784,11 @@ impl GloriousApp {
         }
         if let Some(color) = actions.save_effect_colour {
             self.worker.request(Command::SetEffectColor { color });
+            self.saving = true;
+        }
+        if let Some(mode_byte) = actions.save_effect_brightness {
+            self.worker
+                .request(Command::SetEffectBrightness { mode_byte });
             self.saving = true;
         }
         if let Some(slot) = actions.select_slot {

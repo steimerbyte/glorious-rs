@@ -26,6 +26,11 @@ exposure from the frame, so an unlit mouse gives it a dark frame and there is
 nothing above the brightness line to find. In a bright room an unlit mouse is
 reported as unlit. In a dark one the tool reports no mouse in the frame, which
 is a statement about what the camera can see rather than about what is there.
+
+The band of the frame is a constant below, placed on a photograph of the setup
+this was measured on. Move the mouse to a different part of the desk and the
+measurement follows the frame rather than the mouse, so look at what is in it
+before trusting a reading.
 """
 
 import sys
