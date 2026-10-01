@@ -212,15 +212,19 @@ const PROFILE_OFFSETS: [u8; 3] = [0x00, 0x10, 0x20];
 
 /// Whether this device stores colours as red, green, blue or red, blue, green.
 ///
-/// The ratbag driver warns that the order varies by device. Writing green as
-/// `00ff00` made a Model O show blue, and writing blue made it show green, while
-/// red was unaffected because the first byte is the same either way. Guessing
-/// wrong therefore looks almost right, which is why this had to be measured.
+/// The ratbag driver warns that the order varies by device, and the warning is
+/// worth keeping: on a device that really does store red, blue, green, a tool
+/// that assumes red, green, blue swaps green and blue. What this device does
+/// was measured, not assumed, and the answer turned out to be the ordinary
+/// order.
 ///
-/// This applies to writing only. Reading a blob back needs no conversion: the
-/// bytes the device stores already are its colours, and swapping them on the way
-/// in would undo what the swap on the way out did.
-pub const COLOUR_ORDER_RBG: bool = true;
+/// The measurement: writing `ff0000` produced a red mouse and writing `0000ff`
+/// produced a blue one, both in the same solid effect and confirmed on a
+/// photograph of the device. An earlier version of this file asserted red, blue,
+/// green on the strength of a guess, and it showed green as blue. Red is the
+/// weak case in such a test, because red is the one channel a swap does not
+/// touch, so a swap is invisible in it.
+pub const COLOUR_ORDER_RBG: bool = false;
 
 /// Convert a colour from the tool's RGB order into the device's own order.
 pub fn to_device_colour(colour: [u8; 3]) -> [u8; 3] {

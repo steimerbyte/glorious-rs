@@ -101,12 +101,18 @@ not known has to keep whatever the device reported. Writing zero into it clears
 a setting the user never touched, and the device accepts that without comment:
 this is how an early version of this tool cleared the lighting of a real mouse.
 
-**The colour channels are red, blue, green.** The ratbag driver warns that the
-order varies by device. On a Model O, writing `00ff00` shows blue and writing
-`0000ff` shows green, while red is unaffected because the first byte is the same
-either way. A wrong guess therefore looks almost right. The conversion applies
-to writing only: a colour read back from the device is already in the device's
-order, and swapping it on the way in would undo the swap on the way out.
+**The colour channels are red, green, blue.** The ratbag driver warns that the
+order varies by device, and it is worth taking that seriously: on a device that
+stores red, blue, green, a tool that assumes the ordinary order swaps green and
+blue. What this device does was measured rather than assumed. Writing `ff0000`
+produced a red mouse and writing `0000ff` produced a blue one, both in the same
+solid effect and both confirmed on a photograph of the device.
+
+Red alone would have settled nothing. It is the one channel a swap does not
+touch, so a tool with the order wrong still shows red correctly. An earlier
+version of this tool assumed red, blue, green, and green came out blue for
+exactly that reason. The conversion stays in the code, switched off, because the
+driver's warning is real and the next model may not be.
 
 **A read right after a write returns the old values.** The window therefore
 reports what it just wrote, and a reload from the device confirms it.
@@ -126,21 +132,26 @@ The scripts used for that are in [`tools/`](tools/):
 | `effects.py [Ordner…]` | tells the recorded effects apart by how much their brightness and hue move |
 | `cap.cmd` | takes one frame from the camera, run through `cmd.exe` |
 
-They need WSL, a camera on the host and `ffmpeg` on the Windows side. The
-camera cannot be told to raise saturation or exposure, so `measure.py` pushes the
-colours apart on the pixels instead, which is more precise than any camera
-setting would be. The region of the frame holding the mouse is a constant at the
-top of `measure.py` and `effects.py`; it was checked against captured frames and
-has to be adjusted for a different desk.
+They need WSL, a camera on the host and `ffmpeg` on the Windows side.
 
-The lighting effects were mapped this way. The names come from the ratbag driver,
-but two of them do not behave as documented: value 8 stays within the blue to cyan
-range instead of changing colour, and value 6 turns the LEDs off. The driver
-notes that neither is offered in the vendor software, which is consistent with
-what the mouse does. Value 6 is therefore not offered here either, even though it
-is a value the device accepts: selecting it leaves the mouse dark and there is no
-reason to reach for it. It still reads back as what it is, so a profile written
-by something else is shown honestly rather than as an unknown byte.
+Two things about the camera had to be measured rather than assumed, and both
+were wrong at first. The mouse is moved around on the desk, so a fixed window
+around it eventually frames an empty patch and reports that as a dark mouse. The
+scripts search the lower band of the frame for pixels where one channel clearly
+leads the other two instead, which follows the mouse wherever it is. The window
+behind the desk reflects into the whole picture and the desk carries that tint,
+so both have to be excluded; a search that included them reported a red mouse as
+pale blue. `measure.py` still reads green as cyan, because the reflected window
+is blue and lands in the same channel the mouse is in. Red, blue and off are
+reliable, which is what the effect mapping needs.
+
+An earlier run of `map-effects.sh` produced a table of what each lighting effect
+does, and that table was wrong: the mouse was not in the frame at all, so the
+script measured an empty desk. The only claim from it that survived is the one
+the user could see without a camera, that value 6 leaves the LEDs dark. The
+descriptions of the other effects are not in this file because they have not been
+measured against an image showing the mouse. Running the script writes to the
+device and leaves the last effect it wrote selected.
 
 ## Keywords
 

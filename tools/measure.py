@@ -23,28 +23,36 @@ import sys
 import numpy as np
 from PIL import Image
 
-# Region of the frame holding the mouse, as fractions of width and height.
-# Checked against captured frames: the mouse sits lower centre, and its lit
-# edges are the only saturated pixels in there.
-BOX = (0.45, 0.76, 0.62, 0.90)
+# The band of the frame the mouse is in, as fractions of width and height.
+# The bottom of the frame only, and nothing else. The window behind the desk
+# reflects a blue tint that survives every colour the mouse is set to, and the
+# white chair upholstery is more saturated than a dark unlit mouse. Both were
+# measured before being excluded: a search that included them reported a red
+# mouse as pale blue, because the reflected window dominated the average.
+BAND = (0.30, 0.72, 0.78, 0.94)
 
-# How far colours are pushed apart. Two is enough to grey out the white shell
-# without clipping the LEDs themselves.
-SATURATION_GAIN = 2.2
-
-# A pixel only counts as a lit LED once it is clearly coloured rather than warm
-# or cool grey. The auto white balance leaves a slight tint on everything.
-MIN_SATURATION = 0.30
+# How far one channel has to lead the weakest one before a pixel counts as an
+# LED. The window, the shell and the desk all sit well under this; a lit strip
+# clears it by a wide margin even when the colour is a dim one.
+MIN_LEAD = 60
 
 # The LEDs are the brightest coloured pixels, but the auto exposure drifts, so
-# this many are averaged rather than a single peak pixel.
-TOP_PIXELS = 250
+# a short run of them is averaged rather than a single peak pixel. It has to
+# stay short: a lit edge is a few hundred pixels at most, and averaging in more
+# than that reaches the desk around the mouse, which is lit by the same window
+# and carries the same tint as the reflection in it.
+TOP_PIXELS = 80
 
 
 def dominant_colour(path: str) -> tuple[str, int, int, int]:
     image = Image.open(path).convert("RGB")
     width, height = image.size
-    left, top, right, bottom = BOX
+    # The lower part of the frame, where the mouse is. The mouse is not nailed
+    # down: it was measured at one set of coordinates and then found a few
+    # centimetres away on the next run, so a fixed window around it measured an
+    # empty patch of desk and reported that as the mouse being dark. Searching
+    # the whole band for the most saturated pixels follows it instead.
+    left, top, right, bottom = BAND
     crop = np.asarray(
         image.crop(
             (
@@ -57,50 +65,61 @@ def dominant_colour(path: str) -> tuple[str, int, int, int]:
         dtype=np.float64,
     )
 
-    # Push the colours apart around their own luminance. This is what a camera's
-    # saturation control would do, done on the pixels instead of the sensor.
-    luminance = crop @ np.array([0.2126, 0.7152, 0.0722])
-    boosted = luminance[..., None] + (crop - luminance[..., None]) * SATURATION_GAIN
-    boosted = np.clip(boosted, 0, 255)
+    flat = crop.reshape(-1, 3)
 
-    flat = boosted.reshape(-1, 3)
+    # A pixel is only part of the answer if one channel clearly leads. This is
+    # what separates the LEDs from everything around them: the window behind the
+    # desk reflects into the whole frame, the white shell is barely coloured, and
+    # the desk carries the window's tint. None of those has a channel that runs
+    # far ahead of the other two, and an LED does.
     peak = flat.max(axis=1)
-    spread = flat.max(axis=1) - flat.min(axis=1)
-    saturation = spread / np.maximum(peak, 1)
+    channel = np.argmax(flat, axis=1)
+    order = np.argsort(flat, axis=1)
+    weakest = order[:, 0]
+    lead = peak - np.take_along_axis(flat, weakest[:, None], axis=1)[:, 0]
 
-    lit = flat[saturation >= MIN_SATURATION]
+    lit = flat[lead >= MIN_LEAD]
     if lit.size == 0:
         return ("keine LED sichtbar", 0, 0, 0)
 
-    # The brightest of the saturated pixels: the LEDs outshine the shell, so
-    # brightness is what separates a lit strip from an unlit one.
-    order = np.argsort(-lit.max(axis=1))[: min(TOP_PIXELS, len(lit))]
-    top = lit[order]
-    red, green, blue = (int(round(v)) for v in top.mean(axis=0))
+    # Whichever channel led across the band is the colour, and the brightest
+    # such pixels give its value. Averaging over all of them would mix in the
+    # dimmer ones, which are mostly the shell lit by the same LED.
+    winning = channel[lead >= MIN_LEAD]
+    dominant = int(np.bincount(winning, minlength=3).argmax())
+    candidates = flat[lead >= MIN_LEAD]
+    ranked = candidates[np.argsort(-candidates[:, dominant])][: min(TOP_PIXELS, len(candidates))]
+    red, green, blue = (int(round(v)) for v in ranked.mean(axis=0))
     return (f"{red:02x}{green:02x}{blue:02x}", red, green, blue)
 
 
 def name(red: int, green: int, blue: int) -> str:
-    """Plain German colour name, coarse on purpose."""
+    """Plain German colour name, coarse on purpose.
+
+    The thresholds are looser than the colours look on screen. A lit strip is
+    never a pure channel: light scatters inside the diffuser and the camera
+    applies a white balance, so a mouse set to green measured as (46, 156, 90)
+    rather than (0, 255, 0). The names below were set from those measurements
+    rather than from what the colours should be.
+    """
     peak = max(red, green, blue)
-    if peak < 45:
+    if peak < 60:
         return "aus oder schwarz"
     share = [v / peak for v in (red, green, blue)]
-    if min(share) > 0.85:
-        return "weiss"
-    if share[0] > 0.75 and share[1] < 0.45 and share[2] < 0.45:
-        return "rot"
-    if share[1] > 0.75 and share[0] < 0.45 and share[2] < 0.45:
-        return "gruen"
-    if share[2] > 0.75 and share[0] < 0.45 and share[1] < 0.45:
-        return "blau"
-    if share[0] > 0.65 and share[1] > 0.65 and share[2] < 0.45:
+    lead = sorted(share, reverse=True)
+    if lead[0] - lead[2] < 0.35:
+        return "weiss oder grau"
+    if share[0] == lead[0] and share[1] > 0.6:
         return "gelb"
-    if share[1] > 0.65 and share[2] > 0.65 and share[0] < 0.45:
+    if share[1] == lead[0] and share[2] > 0.6:
         return "cyan"
-    if share[0] > 0.65 and share[2] > 0.65 and share[1] < 0.45:
+    if share[2] == lead[0] and share[0] > 0.6:
         return "magenta"
-    return f"gemischt ({red},{green},{blue})"
+    if share[0] == lead[0]:
+        return "rot"
+    if share[1] == lead[0]:
+        return "gruen"
+    return "blau"
 
 
 def main() -> int:
