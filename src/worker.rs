@@ -45,16 +45,6 @@ pub enum Command {
     SetEffectBrightness {
         mode_byte: u8,
     },
-    /// Set one resolution on the slot the user picked and the ones that are off.
-    ///
-    /// This is the old behaviour and it is a fill, not a mapping: every slot
-    /// that is switched off ends up with the same value. It is kept because
-    /// filling a profile from scratch is what it is good at, and because a
-    /// device that was just plugged in has nothing set.
-    ApplyPreset {
-        slot: usize,
-        dpi: u16,
-    },
     /// Give a list of resolutions and colours to the enabled slots, in order.
     ///
     /// The target slot of each entry is decided by the device's own state rather
@@ -171,11 +161,15 @@ fn apply(mouse: &mut HidMouse, command: Command) -> Reply {
             }
             Ok(())
         }),
+        // Switching a slot on or off changes byte 12, and byte 11 counts the
+        // slots that are on. The two disagreeing is what makes the device drop
+        // the whole write without saying so, leaving every resolution where it
+        // was, so they are put back in step before anything is written.
         Command::SetSlotEnabled { slot, enabled } => with_profile(mouse, |profile| {
             if let Some(entry) = profile.slots.get_mut(slot) {
                 entry.disabled = !enabled;
             }
-            Ok(())
+            profile.sync_slot_count()
         }),
         Command::SetSlotColor { slot, color } => with_profile(mouse, |profile| {
             if let Some(entry) = profile.slots.get_mut(slot) {
@@ -249,23 +243,6 @@ fn apply(mouse: &mut HidMouse, command: Command) -> Reply {
         Command::ApplyProfile { entries } => {
             with_profile(mouse, |profile| apply_profile(profile, &entries))
         }
-        // The old fill: one resolution on the slot the user picked and on every
-        // slot that is switched off. Kept because filling a profile from
-        // scratch is what it is for, and because a mouse that was just plugged
-        // in has nothing set.
-        Command::ApplyPreset { slot, dpi } => with_profile(mouse, |profile| {
-            let slots = &mut profile.slots;
-            if slot >= slots.len() {
-                return Err(format!("slot {} does not exist", slot + 1));
-            }
-            slots[slot].dpi = dpi;
-            for (index, other) in slots.iter_mut().enumerate() {
-                if other.disabled && index != slot {
-                    other.dpi = dpi;
-                }
-            }
-            Ok(())
-        }),
         // The debounce value lives in its own command, so the profile is not
         // written and the device is read to show what it stored.
         Command::SetDebounce { ms } => mouse

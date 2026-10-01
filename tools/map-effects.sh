@@ -81,7 +81,7 @@ for effect in $EFFECTS; do
 
   # A white solid colour, so an effect that is not a static one still lights up
   # and can be told apart from "no effect at all".
-  cmd.exe /NoProfile /c "cd /d $WIN && glorious-rs.exe --set-effect $effect ffffff" \
+  cmd.exe /NoProfile /c "cd /d $WIN && glorious-ctl.exe --set-effect $effect ffffff" \
     >/dev/null 2>&1
   # The mouse takes a moment to accept the profile, and a read straight after a
   # write still returns the old value, so the selector is checked from the blob
@@ -89,7 +89,7 @@ for effect in $EFFECTS; do
   # whatever the previous effect left lit.
   for _ in 1 2 3 4 5 6 7 8; do
     sleep 0.5
-    stored=$(cmd.exe /NoProfile /c "cd /d $WIN && glorious-rs.exe --dump-config" 2>&1 |
+    stored=$(cmd.exe /NoProfile /c "cd /d $WIN && glorious-ctl.exe --dump-config" 2>&1 |
       grep '^ 48:' |
       # Byte 53 is the sixth byte of the row that starts at offset 48.
       awk '{ for (i = 2; i <= NF; i++) if ($i ~ /^[0-9a-f][0-9a-f]$/ && n++ == 5) { print $i; exit } }')

@@ -4,6 +4,15 @@
 
 ### Interface
 
+- The window and the commands are two binaries. Starting the window on Windows
+  opened a black console next to it, because the binary was built for the
+  console subsystem. Marking it for the GUI subsystem would have removed the
+  console but also removed the output of every command, since a binary in that
+  subsystem has none to print to, and that output is the only evidence the
+  device work in this project has. `glorious-rs` is now built for the GUI
+  subsystem and opens the window and nothing else, `glorious-ctl` keeps its
+  console and runs the commands, and the flags moved over with them.
+
 - The window is drawn from a theme rather than from egui's defaults. Colours,
   corner radii, spacing and text sizes are set in one place, so a colour appears
   once in the source. Sections are cards with a hairline border and an accent
@@ -31,9 +40,66 @@
   switched off with one value, which is a different thing from mapping a list
   onto the slots in use, and keeping both meant two ways to write the same bytes
   with different rules.
+- 10000 dpi is offered in the list. It was the one resolution in common use that
+  could not be picked with one click.
+- The slot the mouse is using is marked in the DPI table: a tinted row and an
+  accent bar down its left edge, rather than a differently coloured slot number,
+  which was too easy to miss in a table of six. The mark follows the device, and
+  the window says in its hover text that the DPI button on the mouse is what
+  changes it. There is no command that writes that byte, so offering a way to
+  pick a different slot here would be a button that quietly does nothing.
+- The brightness of a solid effect is a four step slider rather than a row of
+  five buttons, because the values are a progression and equal-looking buttons
+  do not say that. The value stays next to the handle, since it is the byte the
+  device stores and the terminal and the window should not disagree about what
+  a position means. `0xff` is no longer offered: it was on the row because byte
+  60 lit at it, which says nothing about byte 56, and nothing here has a
+  photograph of the solid effect at that brightness.
 
 ### Fixed
 
+- Applying a profile list put the same resolution on every slot. Two faults
+  fed each other. The write path rendered all eight slots, so bytes 19 and 20
+  were given a number on every save even though a Model O drives six slots and
+  never reads those two; and the window kept all eight slots in its own state,
+  so a value that was never written to the mouse came back on the next read and
+  looked like the mouse had taken it. Only the six slots the device drives get a
+  resolution byte now. Which bytes those are depends on the X/Y flag, so the
+  set is computed rather than listed, and bytes 25 to 28, the seventh and eighth
+  slot in the X/Y layout, are left to the device in both layouts. The eight slot
+  colours are still written: how many of them the lighting block reads was never
+  measured, and Glorious Mode follows them.
+- A resolution typed into the window was discarded, and the field then snapped
+  back to what the mouse had. The save was gated on the mouse button being up,
+  and a field that was opened by clicking still has the button down for as long
+  as it is being typed into, so the value reported a change on every frame it
+  was typed and was dropped on every one of them. A value typed or nudged is
+  committed straight away now; only a drag waits for the release, because a drag
+  reports on every frame it moves and writing each of those floods the mouse.
+- A mouse whose sensor byte is not one of the four measured here was given a
+  resolution field capped at 2000 dpi. That number is this tool's own fallback
+  and was never measured for anything, and a field with a maximum clamps
+  whatever is typed into it, so typing 10000 stored 2000. An unknown sensor
+  now gets the highest of the measured sensors as a ceiling, which admits the
+  value instead of silently replacing it, and the window says that the real
+  maximum of that sensor is unknown rather than presenting a guess as a
+  measurement.
+- The resolution field accepted values the device cannot store. Its encoding is
+  `raw * 100`, so 1234 is stored as raw 11 and reads back as 1200 on a PMW3360:
+  the window showed one number and the mouse showed another, the second one
+  arriving on the next read. The field takes whole hundreds now, which are the
+  only values that survive the encoding on every sensor this tool knows.
+- Switching a slot on or off changed the disabled mask without changing the slot
+  count in byte 11. The count is what the device uses to decide how many slots
+  exist, and a profile claiming more slots than the mouse has was the shape
+  `--probe-slots` found being dropped whole. The two are brought back into
+  agreement before anything is written, and the active slot is clamped only when
+  the slot it names no longer exists.
+- The single-value preset command was dead code, and it described the first fault
+  exactly: one resolution on the slot the user picked and on every slot that is
+  switched off. It had no caller left since the profile list replaced it and is
+  gone rather than kept as a second way to write the same bytes by different
+  rules.
 - A pointer held still over a control would have kept laying sparks forever. The
   trail ages out after a fraction of a second, so a still pointer looked like a
   fresh arrival every frame, and the window never stopped repainting. Movement is

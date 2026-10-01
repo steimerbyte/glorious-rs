@@ -121,13 +121,20 @@ so a rule named later would have no effect.
 
 ## Command line
 
+The window and the commands are two binaries, because the window is built for
+the Windows GUI subsystem and a binary in that subsystem has no console. Without
+the split, a single attribute would have to choose between a black console
+window next to the app and commands that print into nothing when started from
+Explorer. `glorious-rs` opens the window and nothing else; `glorious-ctl` runs a
+command and keeps its output.
+
 ```
 glorious-rs                              open the window
-glorious-rs --dpi                        print the current settings and exit
-glorious-rs --dump-config                print the raw 520 byte report with offsets
-glorious-rs --set-effect N [RRGGBB] [BB] set a lighting effect, its colour, its brightness
-glorious-rs --set-colour N RRGGBB        set the colour of a DPI slot
-glorious-rs --calibrate-length           find the value the firmware wants in byte 3
+glorious-ctl --dpi                       print the current settings and exit
+glorious-ctl --dump-config               print the raw 520 byte report with offsets
+glorious-ctl --set-effect N [RRGGBB] [BB] set a lighting effect, its colour, its brightness
+glorious-ctl --set-colour N RRGGBB       set the colour of a DPI slot
+glorious-ctl --calibrate-length          find the value the firmware wants in byte 3
 ```
 
 The brightness is a whole mode byte, because only its upper nibble was measured:

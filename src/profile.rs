@@ -29,6 +29,24 @@ pub struct Profile {
     pub xy_independent: bool,
     /// Counts enabled slots from 1, not physical slot indices.
     pub active_slot: u8,
+    /// How many slots the mouse drives, in the high nibble of byte 11.
+    ///
+    /// A real Model O with the vendor defaults stores `0x11`: one slot on, and
+    /// that one active. Its mask `0xdf` has exactly one clear bit, so on that
+    /// mouse the count is the number of slots that are on.
+    ///
+    /// What is measured about the count itself is its ceiling. `--probe-slots`
+    /// wrote eight slots enabled with a count of eight and the device refused
+    /// the whole profile, leaving every resolution at the value it had before;
+    /// six is what it accepts. A count above the number of enabled slots is
+    /// therefore never written, which is what [`Profile::sync_slot_count`] is
+    /// for. Whether a count below that number is refused as well was not
+    /// measured, and nothing here claims it is.
+    ///
+    /// Carried through from the device rather than recomputed on every write,
+    /// because recomputing it alone would also have to rewrite `active_slot`,
+    /// which is the mouse's own runtime selection rather than something a save
+    /// from this tool should move.
     pub dpi_count: u8,
     pub slots: [DpiSlot; NUM_DPI_SLOTS],
     /// Lighting effect. `None` when the device reports a value this tool
@@ -92,13 +110,67 @@ impl Profile {
     }
 
     /// Maximum resolution the sensor accepts.
+    ///
+    /// For a sensor that is not in [`SENSORS`] this is [`DPI_MAX_ANY_SENSOR`]
+    /// and not a claim about the hardware. See [`Profile::max_dpi_known`].
     pub fn max_dpi(&self) -> u16 {
         max_dpi_for_sensor(self.sensor)
+    }
+
+    /// The measured maximum of this sensor, and whether there is one.
+    ///
+    /// The window needs both halves: the number to use as the range of the DPI
+    /// field, and whether to say that the number came from a measurement. A
+    /// field whose range is a guess that looks like a measurement is the one
+    /// that produces the bug where a typed 10000 dpi comes back as 2000.
+    pub fn max_dpi_known(&self) -> (u16, bool) {
+        match SENSORS.iter().find(|entry| entry.0 == self.sensor) {
+            Some(entry) => (entry.2, true),
+            None => (DPI_MAX_ANY_SENSOR, false),
+        }
     }
 
     /// Report rate in Hz.
     pub fn report_rate(&self) -> u16 {
         report_rate_from_raw(self.report_rate_raw)
+    }
+
+    /// Bring byte 11 and byte 12 back into agreement after a slot was switched
+    /// on or off.
+    ///
+    /// What is measured is the ceiling: `--probe-slots` wrote eight slots
+    /// enabled with a count of eight and the device refused the whole profile,
+    /// leaving every resolution where it was. Six is what it accepts. Whether a
+    /// count below the number of enabled slots is also refused was not
+    /// measured, so it is not claimed here; what is done is that the count is
+    /// never larger than the number of slots that are on, which cannot be the
+    /// shape of the profile the device dropped.
+    ///
+    /// The active slot is moved only as far as it has to be. It is a position
+    /// among the enabled slots, so a profile that lost slots can be left naming
+    /// one that no longer exists, and clamping it stops the write from doing
+    /// that. It does not put the mouse on a different slot: that is the mouse's
+    /// own runtime selection, and a save from this tool has no business moving
+    /// it unless the slot it named is gone.
+    pub fn sync_slot_count(&mut self) -> Result<(), String> {
+        let enabled = (0..USABLE_DPI_SLOTS)
+            .filter(|index| !self.slots[*index].disabled)
+            .count() as u8;
+        if enabled == 0 {
+            return Err(
+                "every slot is switched off, so the mouse would have no resolution to use"
+                    .to_string(),
+            );
+        }
+        self.dpi_count = enabled;
+        // The active slot is a position among the enabled ones, so a profile
+        // that lost slots can be left pointing past the end. Clamping it keeps
+        // the write well formed; it does not move the mouse onto a different
+        // slot, it only stops the profile from naming one that is switched off.
+        if self.active_slot == 0 || self.active_slot > enabled {
+            self.active_slot = enabled;
+        }
+        Ok(())
     }
 
     /// Physical index of the active slot, or `None` when nothing is selected.
@@ -218,17 +290,38 @@ impl Profile {
             if slot.disabled {
                 disabled_mask |= 1 << i;
             }
-            let raw = dpi_to_raw(slot.dpi, self.sensor);
-            if self.xy_independent {
-                out[13 + i * 2] = raw;
-                out[14 + i * 2] = raw;
-            } else {
-                out[13 + i] = raw;
+            // Only the slots the mouse drives get a resolution byte. Slots seven
+            // and eight are storage the firmware keeps and does not light, and
+            // they read back as 100 dpi whatever is written there, so putting a
+            // number in them puts a value on the wire that means nothing and
+            // overwrites the device's own bytes on the way. They were being
+            // written before, which is how a profile with all six driven slots
+            // showing one resolution ended up with the same number in bytes
+            // the mouse never reads.
+            //
+            // The X and Y values of one slot are both the same number here,
+            // because this tool models one resolution per slot rather than two.
+            // That is what it has always written and it is not a claim that the
+            // device cannot take X and Y apart.
+            if i < USABLE_DPI_SLOTS {
+                let raw = dpi_to_raw(slot.dpi, self.sensor);
+                if self.xy_independent {
+                    out[13 + i * 2] = raw;
+                    out[14 + i * 2] = raw;
+                } else {
+                    out[13 + i] = raw;
+                }
             }
             // Slot colours are stored in the order the device reads them, which
             // is what `parse` already produced, so they are written back as they
             // are. Swapping them here would turn every colour into a different
             // one on every save.
+            //
+            // All eight colour triples are written even though six slots are
+            // driven. How many of them the lighting block reads was never
+            // measured, and Glorious Mode follows the slot colours, so the
+            // conservative choice is to leave a value the user chose rather than
+            // clear one.
             let base = COLOR_SLOT_BASE + i * 3;
             out[base..base + 3].copy_from_slice(&slot.color);
         }

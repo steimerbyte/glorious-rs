@@ -162,12 +162,52 @@ The DPI counter starts at 1 and counts only enabled slots, so it is not a physic
 slot index. With slots 0 to 4 and 6 to 7 disabled, an active value of 1 means the
 sixth physical slot.
 
+### Only six of the eight slots are written
+
+The union at byte 13 is sixteen bytes and the driver fills all eight slots, but a
+Model O drives six. `--probe-slots` wrote eight slots enabled with a slot count of
+eight and the device refused the whole profile, leaving every resolution where it
+was; six is what it takes. Slots seven and eight read back as 100 dpi whatever is
+written there.
+
+So the bytes a write may change are not the whole union:
+
+| Layout | Slots 1 to 6 | Slot 7 | Slot 8 |
+|---|---|---|---|
+| ordinary | 13 to 18 | 19 | 20 |
+| X/Y independent | 13 to 24 | 25 and 26 | 27 and 28 |
+
+Bytes 19 and 20 in the ordinary layout are slots seven and eight, and bytes 25 to 28
+in the X/Y layout are the same two slots at two bytes each. Neither is written, and
+neither is the X or Y value of a driven slot: the X/Y layout puts the six driven
+slots at 13 to 24, and the ordinary layout is the same six bytes in order. Writing
+the ordinary set over an X/Y profile would be the other half of the same mistake,
+leaving each slot's second value at whatever the device had.
+
+The eight slot colours at 29 to 52 are a separate question and all eight are
+written. How many of them the lighting block reads was not measured, and Glorious
+Mode follows the slot colours, so a colour the user chose is left rather than
+cleared.
+
+### The slot count is a ceiling that was measured, a lower bound that was not
+
+What `--probe-slots` established is the top: a count above six is refused, and
+refused silently, so the whole write is dropped and nothing changes. A count
+*below* the number of enabled slots was not tested and is not claimed to be
+refused. What the tool therefore guarantees is the one direction it has evidence
+for, that a save never claims more slots than are switched on.
+
 ### DPI encoding
 
 The value is the sensor's own register encoding, `DPI = raw * 100`, with the PMW3360
 and PMW3327 starting at raw 3 rather than 0. The old software's `Cfg.ini` lists
 `400, 800, 1600, 3200, 5000, 10000` for the Model O, which the read path reproduces
 exactly.
+
+The consequence for any control that offers a resolution is that the storable values
+are the multiples of 100. `1234` is stored as raw 11 on a PMW3360 and reads back as
+`1200`, so a field that accepted it would show one number while the mouse showed
+another, with the second arriving on the next read.
 
 ### Report rate
 
@@ -368,9 +408,17 @@ it. The driver sends the blob on its own and so does this.
 whatever the device reported. Writing zero into it clears a setting the user never
 touched and the device accepts that without comment; this is how an early version of
 this tool cleared the lighting of a real mouse. The bytes overlaid are sensor,
-report rate, DPI count and active slot, the disabled slot mask, the eight or sixteen
-DPI values, the 24 bytes of slot colours, and among the lighting block byte 53, byte
-56, bytes 57 to 59 and byte 60.
+report rate, DPI count and active slot, the disabled slot mask, the 24 bytes of slot
+colours, and among the lighting block byte 53, byte 56, bytes 57 to 59 and byte 60.
+
+The DPI values are the one field where the set is computed rather than fixed,
+because which bytes they occupy depends on the X/Y flag in byte 10. Only the six
+slots the device drives are written, in whichever of the two layouts is in use, so
+the set is `13..19` or `13..25` rather than the whole union. Writing all sixteen
+would put a value into two slots the mouse never lights, which is invisible in the
+result and overwrites the device's own bytes on the way; writing the ordinary set
+over an X/Y profile would leave each slot's second value at whatever the device
+had, so the two would disagree on the mouse.
 
 **A read right after a write returns the old values.** The device answers with the
 state from before the write, so a read-back is not a confirmation of it: reading a

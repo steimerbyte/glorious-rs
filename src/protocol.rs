@@ -289,15 +289,54 @@ pub const KNOWN_CONFIG_BYTES: &[usize] = &[
     10, // report rate and X/Y independent flag
     11, // dpi slot count and active slot
     12, // disabled slot mask
-    // 13..29 hold the DPI values: eight bytes, or sixteen when X and Y are
-    // configured separately.
-    13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
-    // 29..53 hold one RGB colour per DPI slot.
+    // The DPI values are not in this list, because which bytes they occupy
+    // depends on the X/Y flag in byte 10. See `dpi_config_bytes`.
+    //
+    // 29..53 hold one RGB colour per DPI slot. All eight are written: six
+    // slots are driven, but how many of the eight colour triples the lighting
+    // block reads was never measured, so zeroing the last two would clear a
+    // colour the mouse may still be showing.
     29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
     // Lighting: the effect selector, the two brightness fields and the colour a
     // solid effect shows.
     53, 56, 57, 58, 59, 60,
 ];
+
+/// The bytes the DPI values occupy, for the layout byte 10 selects.
+///
+/// The report starts the union at byte 13. In the ordinary layout slot `i` is
+/// one byte at `13 + i`, so the six slots the device drives are bytes 13 to 18
+/// and slots seven and eight would be 19 and 20. With the X/Y flag set each
+/// slot is two bytes at `13 + i * 2`, which puts the six driven slots at bytes
+/// 13 to 24.
+///
+/// Bytes 25 to 28 are slot seven and eight in the X/Y layout and nothing at
+/// all in the ordinary one. They are left alone for that reason: the firmware
+/// keeps the space, does not light those slots, and reports them as 100 dpi
+/// whatever is written there. Writing a value into them would put a number on
+/// the wire that means nothing to the mouse, and would overwrite the device's
+/// own bytes on the way.
+pub fn dpi_config_bytes(xy_independent: bool) -> Vec<usize> {
+    let count = if xy_independent {
+        USABLE_DPI_SLOTS * 2
+    } else {
+        USABLE_DPI_SLOTS
+    };
+    (13..13 + count).collect()
+}
+
+/// Every byte a write touches: the fixed fields plus the DPI values of the
+/// layout in use.
+///
+/// Returned as a `Vec` because the DPI bytes depend on the X/Y flag, and a
+/// static list would either write the wrong layout or skip the right one.
+pub fn config_bytes_to_write(xy_independent: bool) -> Vec<usize> {
+    KNOWN_CONFIG_BYTES
+        .iter()
+        .copied()
+        .chain(dpi_config_bytes(xy_independent))
+        .collect()
+}
 
 /// First and last byte offset covered by [`KNOWN_CONFIG_BYTES`], for tests.
 pub const KNOWN_CONFIG_RANGE: std::ops::RangeInclusive<usize> = 9..=60;
@@ -319,8 +358,20 @@ pub const SENSORS: [(u8, &str, u16); 4] = [
     (0x0f, "PMW3389", 16000),
 ];
 
-/// Value used when the sensor is not one of the known ones.
-pub const DPI_FALLBACK_MAX: u16 = 2000;
+/// Highest resolution of any sensor in [`SENSORS`].
+///
+/// Used as the range of a control whose own sensor is unknown, in place of the
+/// 2000 this tool used to fall back to. That number was never measured for
+/// anything and `max_dpi_for_sensor` fed it straight into the DPI field's
+/// `.range()`, which is what made a typed 10000 dpi come back as 2000: egui
+/// clamps a typed value into the field's range, so the fallback was not a
+/// placeholder that got replaced later, it was the value that got written.
+///
+/// This is a ceiling for an input control, not a claim about the device. A mouse
+/// with a sensor nobody has measured here can still be asked for 16000 dpi, and
+/// whether it honours that is a question for the hardware rather than for this
+/// tool, which is why the window says so rather than presenting it as a maximum.
+pub const DPI_MAX_ANY_SENSOR: u16 = 16000;
 
 /// Mice this tool speaks to.
 pub const KNOWN_DEVICES: [(u16, u16, &str); 5] = [
@@ -349,16 +400,26 @@ pub fn sensor_name(sensor: u8) -> String {
     }
 }
 
-/// Maximum resolution the sensor accepts.
+/// Maximum resolution of a sensor whose range was measured.
+///
+/// For a sensor that is not in [`SENSORS`] this returns [`DPI_MAX_ANY_SENSOR`]
+/// rather than a made-up number. See that constant for what the 2000 it
+/// replaces did to a typed value.
 pub fn max_dpi_for_sensor(sensor: u8) -> u16 {
     SENSORS
         .iter()
         .find(|s| s.0 == sensor)
         .map(|s| s.2)
-        .unwrap_or(DPI_FALLBACK_MAX)
+        .unwrap_or(DPI_MAX_ANY_SENSOR)
 }
 
 /// Whether the sensor encodes DPI with a one-step offset.
+///
+/// Only the two sensors that were measured take the offset. An unknown sensor
+/// is treated as not taking it, which is the reading that keeps the DPI value
+/// the device stores visible as the number the user set: raw 99 is 9900 without
+/// the offset and 10000 with it, and a wrong offset in either direction reports
+/// a value the user never entered.
 fn sensor_has_offset(sensor: u8) -> bool {
     sensor == 0x0e || sensor == 0x06
 }

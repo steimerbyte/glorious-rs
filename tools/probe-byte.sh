@@ -29,7 +29,7 @@ mkdir -p "$OUT"
 
 for value in "$@"; do
     echo "==> byte $OFFSET = $value"
-    (cd "$WIN_ROOT" && ./glorious-rs.exe --set-byte "$OFFSET" "$value" 2>&1 | head -1)
+    (cd "$WIN_ROOT" && ./glorious-ctl.exe --set-byte "$OFFSET" "$value" 2>&1 | head -1)
     sleep 4
     (cd "$WIN_ROOT" && cmd.exe /NoProfile /c "cd /d $WIN && cap.cmd" >/dev/null 2>&1)
     cp "$WIN_ROOT/cam0.jpg" "$OUT/$value.jpg" 2>/dev/null

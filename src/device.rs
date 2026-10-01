@@ -206,10 +206,14 @@ impl<T: FeatureTransport> Mouse<T> {
         let keep = payload_len.min(blob.len());
         payload[..keep].copy_from_slice(&blob[..keep]);
 
-        let known: &[usize] = KNOWN_CONFIG_BYTES;
+        // The byte set depends on the X/Y flag, because the resolutions occupy
+        // twice as many bytes when it is set. Writing the ordinary layout's
+        // bytes over an X/Y profile would leave the second value of each slot
+        // at whatever the device had, so the two would disagree on the mouse.
+        let known = config_bytes_to_write(profile.xy_independent);
         for index in known {
-            if *index < payload_len && *index < rendered.len() {
-                payload[*index] = rendered[*index];
+            if index < payload_len && index < rendered.len() {
+                payload[index] = rendered[index];
             }
         }
         payload[0] = REPORT_ID_CONFIG;

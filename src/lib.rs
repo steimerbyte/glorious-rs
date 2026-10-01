@@ -5,6 +5,7 @@
 //! wire protocol is documented in `PROTOCOL.md`.
 
 pub mod app;
+pub mod cli;
 pub mod confetti;
 pub mod device;
 pub mod preview;
