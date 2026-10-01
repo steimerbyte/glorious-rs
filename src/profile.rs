@@ -222,7 +222,22 @@ impl Profile {
         out[12] = disabled_mask;
 
         // The lighting block, offsets as in the driver's config report:
-        // effect selector, then one rgb_mode per effect, then the colours.
+        // effect selector, then one field per effect, then the colours.
+        //
+        // Byte 54 and byte 55 were both swept one value at a time, with a
+        // photograph of the mouse after each, under the glorious effect. Byte
+        // 54 moves the colour gradient along the mouse: 0 lays it out blue at
+        // the front and green at the back, 128 reverses that, and 255 puts red
+        // at the front. Under the solid effects it changes nothing, so the name
+        // says what the driver calls it and the measurement says it is really
+        // the direction of the gradient.
+        //
+        // Byte 55 made no visible difference at any of 0, 64, 128 and 255. Its
+        // meaning is unknown and it is carried over for the same reason as
+        // every other field here: writing a zero into a field whose meaning is
+        // not known clears whatever the user had there, and the device accepts
+        // that without comment.
+        //
         // A selector this tool does not recognise keeps whatever the device
         // reported, because 0xff is what a mouse without LEDs stores and writing
         // it as zero would switch the lighting off on a device that merely said

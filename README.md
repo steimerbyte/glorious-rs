@@ -122,6 +122,14 @@ values. The field is packed as brightness in the high nibble, so a value of
 `0x13` is brightness 1 and speed 3, and the pairing in `rgb_mode_decode` is the
 other way round from what that ordering implies.
 
+**Byte 54 sets the direction of the colour gradient, and byte 55 does
+nothing that could be seen.** Both were swept one value at a time under the
+glorious effect, with a photograph after each. Byte 54 moves the gradient along
+the mouse: 0 puts blue at the front and green at the back, 128 reverses it, 255
+puts red at the front. Byte 55 made no visible difference at 0, 64, 128 or 255,
+and is carried over from the device untouched. Under the solid effects byte 54
+makes no difference either, which is why it only means something in one of them.
+
 **A read right after a write returns the old values.** The window therefore
 reports what it just wrote, and a reload from the device confirms it.
 
