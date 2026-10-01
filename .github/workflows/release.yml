@@ -1,0 +1,72 @@
+name: Release
+
+# Tagged commits are built for both systems and published as a GitHub release.
+# The AppImage is put together here rather than on a maintainer machine: the
+# only step that needs a special environment is appimagetool, which the job
+# fetches and then runs unpacked, since mounting an AppImage needs FUSE and the
+# runner has none.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: AppImage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Lint
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+
+      - name: Install appimagetool
+        run: |
+          curl -sL -o /tmp/appimagetool \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool
+
+      - name: Build AppImage
+        run: packaging/build-appimage.sh
+
+      - name: Upload
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/glorious-rs-x86_64.AppImage
+
+  windows:
+    name: Windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Test
+        run: cargo test --locked
+
+      # The target is added because this runs on Windows, where the GNU
+      # toolchain and therefore a plain cargo build would produce an MSVC
+      # binary needing the Visual C runtime. The GNU one is a single file
+      # that runs on any Windows without that.
+      - name: Install the GNU target
+        run: rustup target add x86_64-pc-windows-gnu
+
+      - name: Build
+        run: cargo build --release --target x86_64-pc-windows-gnu
+
+      - name: Upload
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/x86_64-pc-windows-gnu/release/glorious-rs.exe

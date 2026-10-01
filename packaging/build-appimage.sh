@@ -10,6 +10,21 @@ if ! command -v appimagetool >/dev/null; then
     exit 1
 fi
 
+# appimagetool is itself an AppImage, and mounting one needs FUSE. Under WSL
+# there is no fusermount, and in a container there usually is none either. Both
+# ship a self-extracting fallback that unpacks into a directory and puts
+# mksquashfs next to it, which is all that is needed here: the tool is only ever
+# run to write an image, never mounted.
+APPIMAGETOOL="$(command -v appimagetool)"
+if ! "$APPIMAGETOOL" --version >/dev/null 2>&1; then
+    echo "==> appimagetool cannot run here, unpacking it instead"
+    WORK="$(mktemp -d)"
+    trap 'rm -rf "$WORK"' EXIT
+    (cd "$WORK" && "$APPIMAGETOOL" --appimage-extract >/dev/null)
+    APPIMAGETOOL="$WORK/squashfs-root/usr/bin/appimagetool"
+    export PATH="$WORK/squashfs-root/usr/bin:$PATH"
+fi
+
 echo "==> release build"
 cargo build --release
 
@@ -38,7 +53,7 @@ cat > "$APPDIR/glorious-rs.png" <<'SVG'
 SVG
 
 echo "==> appimage"
-appimagetool "$APPDIR" target/glorious-rs-x86_64.AppImage
+"$APPIMAGETOOL" "$APPDIR" target/glorious-rs-x86_64.AppImage
 
 echo
 echo "built: target/glorious-rs-x86_64.AppImage ($(du -h target/glorious-rs-x86_64.AppImage | cut -f1))"

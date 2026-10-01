@@ -20,7 +20,11 @@ pub trait FeatureTransport: Send {
     /// USB ids of the opened device.
     fn vendor_id(&self) -> u16;
     fn product_id(&self) -> u16;
-    fn get_feature_report(&mut self, report_id: u8, length: usize) -> Result<Vec<u8>, TransportError>;
+    fn get_feature_report(
+        &mut self,
+        report_id: u8,
+        length: usize,
+    ) -> Result<Vec<u8>, TransportError>;
     fn set_feature_report(&mut self, data: &[u8]) -> Result<(), TransportError>;
 }
 
@@ -96,7 +100,9 @@ impl HidTransport {
                 let Ok(device) = api.open_path(&path) else {
                     continue;
                 };
-                if config.is_none() && supports_report(&device, REPORT_ID_CONFIG, CONFIG_REPORT_SIZE) {
+                if config.is_none()
+                    && supports_report(&device, REPORT_ID_CONFIG, CONFIG_REPORT_SIZE)
+                {
                     config = Some(device);
                 } else if command.is_none()
                     && supports_report(&device, REPORT_ID_COMMAND, COMMAND_SIZE)
@@ -106,7 +112,12 @@ impl HidTransport {
             }
 
             if let (Some(command), Some(config)) = (command, config) {
-                return Ok(HidTransport { command, config, vendor_id: vid, product_id: pid });
+                return Ok(HidTransport {
+                    command,
+                    config,
+                    vendor_id: vid,
+                    product_id: pid,
+                });
             }
         }
         Err(TransportError::NoDevice)
@@ -122,7 +133,11 @@ impl FeatureTransport for HidTransport {
         self.product_id
     }
 
-    fn get_feature_report(&mut self, report_id: u8, length: usize) -> Result<Vec<u8>, TransportError> {
+    fn get_feature_report(
+        &mut self,
+        report_id: u8,
+        length: usize,
+    ) -> Result<Vec<u8>, TransportError> {
         let handle = if report_id == REPORT_ID_COMMAND {
             &self.command
         } else {

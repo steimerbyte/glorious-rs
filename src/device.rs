@@ -33,7 +33,11 @@ pub struct Mouse<T: FeatureTransport> {
 
 impl<T: FeatureTransport> Mouse<T> {
     pub fn new(transport: T) -> Self {
-        Mouse { transport, payload_len: CONFIG_REPORT_SIZE, cached: None }
+        Mouse {
+            transport,
+            payload_len: CONFIG_REPORT_SIZE,
+            cached: None,
+        }
     }
 
     /// Run a command and return its reply, which echoes the command in byte 1.
@@ -43,7 +47,9 @@ impl<T: FeatureTransport> Mouse<T> {
         request[1] = command;
         self.transport.set_feature_report(&request)?;
 
-        let reply = self.transport.get_feature_report(REPORT_ID_COMMAND, COMMAND_SIZE)?;
+        let reply = self
+            .transport
+            .get_feature_report(REPORT_ID_COMMAND, COMMAND_SIZE)?;
         if reply.len() < 2 || reply[1] != command {
             return Err(TransportError::Protocol(format!(
                 "command 0x{command:02x} was answered for a different command"
@@ -60,7 +66,8 @@ impl<T: FeatureTransport> Mouse<T> {
         request[0] = REPORT_ID_COMMAND;
         request[1] = command;
         self.transport.set_feature_report(&request)?;
-        self.transport.get_feature_report(REPORT_ID_CONFIG, CONFIG_REPORT_SIZE)
+        self.transport
+            .get_feature_report(REPORT_ID_CONFIG, CONFIG_REPORT_SIZE)
     }
 
     /// Length of the meaningful content in a configuration blob.
@@ -110,10 +117,7 @@ impl<T: FeatureTransport> Mouse<T> {
 
             let debounce_ms = self.debounce().map(|value| value * 2);
 
-            let (vendor_id, product_id) = (
-                self.transport.vendor_id(),
-                self.transport.product_id(),
-            );
+            let (vendor_id, product_id) = (self.transport.vendor_id(), self.transport.product_id());
             let name = KNOWN_DEVICES
                 .iter()
                 .find(|d| d.0 == vendor_id && d.1 == product_id)
@@ -193,7 +197,9 @@ impl<T: FeatureTransport> Mouse<T> {
         self.payload_len = Self::payload_length(&blob);
         let payload_len = self.payload_len;
 
-        let rendered = profile.serialize(payload_len).map_err(TransportError::Protocol)?;
+        let rendered = profile
+            .serialize(payload_len)
+            .map_err(TransportError::Protocol)?;
 
         // Start from the device's own bytes, then overlay only known fields.
         let mut payload = vec![0u8; CONFIG_REPORT_SIZE];

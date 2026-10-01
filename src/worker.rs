@@ -14,18 +14,36 @@ use crate::transport::HidTransport;
 /// Something the user asked for.
 pub enum Command {
     Read,
-    SetDpi { slot: usize, dpi: u16 },
-    SetSlotEnabled { slot: usize, enabled: bool },
-    SetSlotColor { slot: usize, color: [u8; 3] },
-    SetReportRate { hz: u16 },
+    SetDpi {
+        slot: usize,
+        dpi: u16,
+    },
+    SetSlotEnabled {
+        slot: usize,
+        enabled: bool,
+    },
+    SetSlotColor {
+        slot: usize,
+        color: [u8; 3],
+    },
+    SetReportRate {
+        hz: u16,
+    },
     SetLighting {
         effect: crate::protocol::RgbEffect,
     },
     /// Colour for an effect that shows one colour for the whole mouse.
-    SetEffectColor { color: [u8; 3] },
+    SetEffectColor {
+        color: [u8; 3],
+    },
     /// Set one resolution on the slot the user picked and the ones that are off.
-    ApplyPreset { slot: usize, dpi: u16 },
-    SetDebounce { ms: u8 },
+    ApplyPreset {
+        slot: usize,
+        dpi: u16,
+    },
+    SetDebounce {
+        ms: u8,
+    },
 }
 
 /// The worker's answer.
@@ -72,7 +90,12 @@ impl Worker {
             }
         });
 
-        Worker { commands, replies, pending: None, thread: Some(thread) }
+        Worker {
+            commands,
+            replies,
+            pending: None,
+            thread: Some(thread),
+        }
     }
 
     /// Ask the worker to read the mouse again.
@@ -146,6 +169,13 @@ fn apply(mouse: &mut HidMouse, command: Command) -> Reply {
             }
         }),
         Command::SetLighting { effect } => with_profile(mouse, |profile| {
+            // The menu already leaves this effect out, but the command also
+            // arrives from the terminal, and a value that puts the mouse into a
+            // state indistinguishable from a hardware fault is worth refusing
+            // at the point where it would be written.
+            if !effect.is_writable() {
+                return Err(format!("{} would leave the LEDs dark", effect.name()));
+            }
             profile.rgb_effect = Some(effect);
             Ok(())
         }),
@@ -195,10 +225,15 @@ fn with_profile(
     mouse: &mut HidMouse,
     change: impl FnOnce(&mut crate::profile::Profile) -> Result<(), String>,
 ) -> Result<Option<DeviceState>, String> {
-    let mut state = mouse.state(false).map_err(|error| error.to_string())?.clone();
+    let mut state = mouse
+        .state(false)
+        .map_err(|error| error.to_string())?
+        .clone();
     let mut profile = state.profile.clone();
     change(&mut profile)?;
-    mouse.write_profile(&profile).map_err(|error| error.to_string())?;
+    mouse
+        .write_profile(&profile)
+        .map_err(|error| error.to_string())?;
     state.profile = profile;
     Ok(Some(state))
 }

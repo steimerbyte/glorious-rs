@@ -36,9 +36,8 @@ impl Confetti {
 
     /// Start a burst in `colour` from `origin`.
     pub fn burst(&mut self, colour: [u8; 3], origin: egui::Pos2) {
-        let base = egui::ecolor::Hsva::from(egui::Color32::from_rgb(
-            colour[0], colour[1], colour[2],
-        ));
+        let base =
+            egui::ecolor::Hsva::from(egui::Color32::from_rgb(colour[0], colour[1], colour[2]));
         self.remaining = Self::LIFETIME;
         const COUNT: usize = 90;
 

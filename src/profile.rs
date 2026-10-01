@@ -12,7 +12,11 @@ pub struct DpiSlot {
 
 impl Default for DpiSlot {
     fn default() -> Self {
-        DpiSlot { dpi: 800, disabled: false, color: [255, 0, 0] }
+        DpiSlot {
+            dpi: 800,
+            disabled: false,
+            color: [255, 0, 0],
+        }
     }
 }
 
@@ -117,12 +121,14 @@ impl Profile {
         if blob.len() < MIN_CONFIG_SIZE || blob[0] != REPORT_ID_CONFIG {
             return None;
         }
-        let mut profile = Profile::default();
-        profile.sensor = blob[9];
-        profile.report_rate_raw = blob[10] & 0x0f;
-        profile.xy_independent = blob[10] & CONFIG_FLAG_XY_INDEPENDENT != 0;
-        profile.dpi_count = (blob[11] >> 4) & 0x0f;
-        profile.active_slot = blob[11] & 0x0f;
+        let mut profile = Profile {
+            sensor: blob[9],
+            report_rate_raw: blob[10] & 0x0f,
+            xy_independent: blob[10] & CONFIG_FLAG_XY_INDEPENDENT != 0,
+            dpi_count: (blob[11] >> 4) & 0x0f,
+            active_slot: blob[11] & 0x0f,
+            ..Default::default()
+        };
         let disabled_mask = blob[12];
 
         for i in 0..NUM_DPI_SLOTS {
@@ -151,11 +157,8 @@ impl Profile {
         profile.rgb_single_color = [blob[57], blob[58], blob[59]];
         profile.rgb_breathing7_mode = blob[60];
         for i in 0..7 {
-            profile.rgb_breathing7_colors[i] = [
-                blob[61 + i * 3],
-                blob[62 + i * 3],
-                blob[63 + i * 3],
-            ];
+            profile.rgb_breathing7_colors[i] =
+                [blob[61 + i * 3], blob[62 + i * 3], blob[63 + i * 3]];
         }
         // A short blob has no lift-off byte. Reading past the end would panic,
         // so the field keeps its default instead.
@@ -171,7 +174,7 @@ impl Profile {
     /// transfer size. Byte 3 addresses the payload and therefore limits how
     /// much data can be written.
     pub fn serialize(&self, payload_len: usize) -> Result<Vec<u8>, String> {
-        if payload_len < MIN_CONFIG_SIZE || payload_len > CONFIG_REPORT_SIZE {
+        if !(MIN_CONFIG_SIZE..=CONFIG_REPORT_SIZE).contains(&payload_len) {
             return Err(format!(
                 "payload length {payload_len} outside {MIN_CONFIG_SIZE}..={CONFIG_REPORT_SIZE}"
             ));
@@ -190,7 +193,11 @@ impl Profile {
         out[3] = (payload_len - 8) as u8;
         out[9] = self.sensor;
         out[10] = (self.report_rate_raw & 0x0f)
-            | if self.xy_independent { CONFIG_FLAG_XY_INDEPENDENT } else { 0 };
+            | if self.xy_independent {
+                CONFIG_FLAG_XY_INDEPENDENT
+            } else {
+                0
+            };
         out[11] = (self.dpi_count << 4) | (self.active_slot & 0x0f);
 
         let mut disabled_mask = 0u8;

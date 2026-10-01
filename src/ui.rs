@@ -88,51 +88,55 @@ fn draw_device(ui: &mut egui::Ui, state: &mut AppState) {
         return;
     };
 
-    egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        egui::Grid::new("device_grid")
-            .num_columns(2)
-            .striped(true)
-            .spacing([16.0, 6.0])
-            .show(ui, |ui| {
-                ui.label("Model");
-                ui.label(&device.name);
-                ui.end_row();
+    egui::Frame::group(ui.style())
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            egui::Grid::new("device_grid")
+                .num_columns(2)
+                .striped(true)
+                .spacing([16.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label("Model");
+                    ui.label(&device.name);
+                    ui.end_row();
 
-                ui.label("USB ID");
-                ui.label(format!(
-                    "{:04x}:{:04x}",
-                    device.vendor_id, device.product_id
-                ));
-                ui.end_row();
+                    ui.label("USB ID");
+                    ui.label(format!(
+                        "{:04x}:{:04x}",
+                        device.vendor_id, device.product_id
+                    ));
+                    ui.end_row();
 
-                ui.label("Firmware");
-                ui.label(&device.firmware);
-                ui.end_row();
+                    ui.label("Firmware");
+                    ui.label(&device.firmware);
+                    ui.end_row();
 
-                ui.label("Sensor");
-                ui.label(device.profile.sensor_name());
-                ui.end_row();
+                    ui.label("Sensor");
+                    ui.label(device.profile.sensor_name());
+                    ui.end_row();
 
-                ui.label("Profile");
-                ui.label(format!("{}", device.active_profile));
-                ui.end_row();
-            });
-    });
+                    ui.label("Profile");
+                    ui.label(format!("{}", device.active_profile));
+                    ui.end_row();
+                });
+        });
 }
 
 /// Either the error text, or a spinner while the mouse is being read.
 fn show_status(ui: &mut egui::Ui, state: &AppState) {
-    egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
-        if let Some(error) = state.error.as_deref() {
-            ui.colored_label(DANGER, "No mouse");
-            ui.add_space(6.0);
-            ui.label(error);
-        } else {
-            ui.spinner();
-            ui.label("Looking for a mouse...");
-        }
-    });
+    egui::Frame::group(ui.style())
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            if let Some(error) = state.error.as_deref() {
+                ui.colored_label(DANGER, "No mouse");
+                ui.add_space(6.0);
+                ui.label(error);
+            } else {
+                ui.spinner();
+                ui.label("Looking for a mouse...");
+            }
+        });
 }
 
 fn draw_dpi(ui: &mut egui::Ui, state: &mut AppState, actions: &mut UiActions) {
@@ -152,23 +156,25 @@ fn draw_dpi(ui: &mut egui::Ui, state: &mut AppState, actions: &mut UiActions) {
     // not mean typing each value. The mouse stores 100 to 16000, but a DragValue
     // for that range is unusable, which is why the vendor software offers a
     // fixed list too.
-    egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        ui.weak("Preset: assign these to the selected slots, or to the ones that are off.");
-        ui.add_space(4.0);
-        ui.horizontal_wrapped(|ui| {
-            for dpi in PRESET_DPIS {
-                if ui
-                    .button(dpi.to_string())
-                    .on_hover_text(format!("Set {dpi} dpi on the selected slots"))
-                    .clicked()
-                    && released
-                {
-                    actions.apply_preset = Some(dpi);
+    egui::Frame::group(ui.style())
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.weak("Preset: assign these to the selected slots, or to the ones that are off.");
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                for dpi in PRESET_DPIS {
+                    if ui
+                        .button(dpi.to_string())
+                        .on_hover_text(format!("Set {dpi} dpi on the selected slots"))
+                        .clicked()
+                        && released
+                    {
+                        actions.apply_preset = Some(dpi);
+                    }
                 }
-            }
+            });
         });
-    });
 
     // Edits are collected here and only handed to the device after the frame,
     // because writing needs a mutable borrow the borrow checker forbids mid UI.
@@ -182,74 +188,76 @@ fn draw_dpi(ui: &mut egui::Ui, state: &mut AppState, actions: &mut UiActions) {
     let mut colors: Vec<(usize, [u8; 3])> = Vec::new();
     let mut selected: Option<usize> = None;
 
-    egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        egui::Grid::new("dpi_grid")
-            .num_columns(4)
-            .striped(true)
-            .spacing([16.0, 6.0])
-            .show(ui, |ui| {
-                ui.strong("Slot");
-                ui.strong("DPI");
-                ui.strong("LED");
-                ui.strong("On");
-                ui.end_row();
-
-                // Only the slots the mouse actually drives. The report has room
-                // for eight, but the vendor configuration lists six and the
-                // device refuses a profile that switches on more, so showing the
-                // last two would offer settings that cannot be saved.
-                for index in 0..crate::protocol::USABLE_DPI_SLOTS {
-                    let slot = device.profile.slots[index];
-                    let active = active_index == Some(index);
-                    let response = ui
-                        .label(
-                            egui::RichText::new(format!("{}", index + 1))
-                                .color(if active { ACCENT } else { egui::Color32::GRAY })
-                                .strong(),
-                        )
-                        .on_hover_text(if active {
-                            "The slot the mouse is using right now"
-                        } else {
-                            "Click to select this slot for the preset buttons above"
-                        });
-                    if response.clicked() {
-                        selected = Some(index);
-                    }
-
-                    // Every slot is editable. The vendor software only lets the
-                    // slot the mouse currently uses be changed, which means
-                    // reconfiguring a profile means pressing the DPI button
-                    // repeatedly. The device stores each slot independently, so
-                    // there is no reason to make the user do that here.
-                    let mut dpi = slot.dpi;
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut dpi)
-                                .speed(50.0)
-                                .range(100..=max_dpi)
-                                .suffix(" dpi"),
-                        )
-                        .changed()
-                    {
-                        changed.push((index, dpi));
-                    }
-
-                    // egui edits the byte array directly, which is also how the
-                    // device stores the colour.
-                    let mut color = slot.color;
-                    if ui.color_edit_button_srgb(&mut color).changed() {
-                        colors.push((index, color));
-                    }
-
-                    let mut enabled = !slot.disabled;
-                    if ui.checkbox(&mut enabled, "").changed() {
-                        toggles.push((index, enabled));
-                    }
+    egui::Frame::group(ui.style())
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            egui::Grid::new("dpi_grid")
+                .num_columns(4)
+                .striped(true)
+                .spacing([16.0, 6.0])
+                .show(ui, |ui| {
+                    ui.strong("Slot");
+                    ui.strong("DPI");
+                    ui.strong("LED");
+                    ui.strong("On");
                     ui.end_row();
-                }
-            });
-    });
+
+                    // Only the slots the mouse actually drives. The report has room
+                    // for eight, but the vendor configuration lists six and the
+                    // device refuses a profile that switches on more, so showing the
+                    // last two would offer settings that cannot be saved.
+                    for index in 0..crate::protocol::USABLE_DPI_SLOTS {
+                        let slot = device.profile.slots[index];
+                        let active = active_index == Some(index);
+                        let response = ui
+                            .label(
+                                egui::RichText::new(format!("{}", index + 1))
+                                    .color(if active { ACCENT } else { egui::Color32::GRAY })
+                                    .strong(),
+                            )
+                            .on_hover_text(if active {
+                                "The slot the mouse is using right now"
+                            } else {
+                                "Click to select this slot for the preset buttons above"
+                            });
+                        if response.clicked() {
+                            selected = Some(index);
+                        }
+
+                        // Every slot is editable. The vendor software only lets the
+                        // slot the mouse currently uses be changed, which means
+                        // reconfiguring a profile means pressing the DPI button
+                        // repeatedly. The device stores each slot independently, so
+                        // there is no reason to make the user do that here.
+                        let mut dpi = slot.dpi;
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut dpi)
+                                    .speed(50.0)
+                                    .range(100..=max_dpi)
+                                    .suffix(" dpi"),
+                            )
+                            .changed()
+                        {
+                            changed.push((index, dpi));
+                        }
+
+                        // egui edits the byte array directly, which is also how the
+                        // device stores the colour.
+                        let mut color = slot.color;
+                        if ui.color_edit_button_srgb(&mut color).changed() {
+                            colors.push((index, color));
+                        }
+
+                        let mut enabled = !slot.disabled;
+                        if ui.checkbox(&mut enabled, "").changed() {
+                            toggles.push((index, enabled));
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
 
     if let Some(index) = selected {
         actions.select_slot = Some(index);
@@ -284,17 +292,19 @@ fn draw_polling(ui: &mut egui::Ui, state: &mut AppState, actions: &mut UiActions
     section(ui, "Polling rate");
 
     let current = device.profile.report_rate();
-    egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        ui.horizontal_wrapped(|ui| {
-            for (_, hz) in crate::protocol::REPORT_RATES {
-                let selected = hz == current;
-                if ui.selectable_label(selected, format!("{hz} Hz")).clicked() && !selected {
-                    actions.save_rate = Some(hz);
+    egui::Frame::group(ui.style())
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                for (_, hz) in crate::protocol::REPORT_RATES {
+                    let selected = hz == current;
+                    if ui.selectable_label(selected, format!("{hz} Hz")).clicked() && !selected {
+                        actions.save_rate = Some(hz);
+                    }
                 }
-            }
+            });
         });
-    });
 }
 
 fn draw_lighting(ui: &mut egui::Ui, state: &mut AppState, actions: &mut UiActions) {
@@ -363,31 +373,31 @@ fn draw_advanced(ui: &mut egui::Ui, state: &mut AppState, actions: &mut UiAction
     section(ui, "Advanced");
     let debounce = device.debounce_ms;
 
-    egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        // Wrapped, because seven buttons plus two labels do not fit on one line
-        // in a narrow window.
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Debounce");
-            let current = debounce.unwrap_or(0);
-            ui.label(format!("{current} ms"));
-            ui.add_space(8.0);
-            for value in crate::protocol::DEBOUNCE_TIMES {
-                let selected = value == current;
-                if ui.selectable_label(selected, format!("{value}")).clicked() && !selected {
-                    actions.save_debounce = Some(value);
+    egui::Frame::group(ui.style())
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            // Wrapped, because seven buttons plus two labels do not fit on one line
+            // in a narrow window.
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Debounce");
+                let current = debounce.unwrap_or(0);
+                ui.label(format!("{current} ms"));
+                ui.add_space(8.0);
+                for value in crate::protocol::DEBOUNCE_TIMES {
+                    let selected = value == current;
+                    if ui.selectable_label(selected, format!("{value}")).clicked() && !selected {
+                        actions.save_debounce = Some(value);
+                    }
                 }
-            }
+            });
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new("Lower values cut click latency but risk double clicks.")
+                    .color(egui::Color32::GRAY)
+                    .small(),
+            );
         });
-        ui.add_space(6.0);
-        ui.label(
-            egui::RichText::new(
-                "Lower values cut click latency but risk double clicks.",
-            )
-            .color(egui::Color32::GRAY)
-            .small(),
-        );
-    });
 }
 
 fn section(ui: &mut egui::Ui, title: &str) {

@@ -21,9 +21,10 @@ fn main() -> eframe::Result<()> {
     if first.as_deref() == Some("--set-effect") {
         let mut rest = std::env::args().skip(2);
         let effect: u8 = rest.next().and_then(|a| a.parse().ok()).unwrap_or(2);
-        let colour = rest.next().and_then(|a| u32::from_str_radix(&a, 16).ok()).map(|v| {
-            [(v >> 16) as u8, (v >> 8) as u8, v as u8]
-        });
+        let colour = rest
+            .next()
+            .and_then(|a| u32::from_str_radix(&a, 16).ok())
+            .map(|v| [(v >> 16) as u8, (v >> 8) as u8, v as u8]);
         return set_effect(effect, colour);
     }
     // `--probe-slots` writes a distinct DPI into every slot, which is how the
@@ -237,7 +238,13 @@ fn dump_config() -> eframe::Result<()> {
         let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02x}")).collect();
         let ascii: String = chunk
             .iter()
-            .map(|b| if (32..127).contains(b) { *b as char } else { '.' })
+            .map(|b| {
+                if (32..127).contains(b) {
+                    *b as char
+                } else {
+                    '.'
+                }
+            })
             .collect();
         println!("{base:3}: {}  {ascii}", hex.join(" "));
     }
@@ -272,9 +279,14 @@ fn calibrate_length() -> eframe::Result<()> {
 
     // A value the device cannot already hold, so a match cannot be a leftover.
     let probe_colour: [u8; 3] = [1, 2, 3];
-    println!("writing slot 1 colour {} with each byte 3 value\n", hex_colour(probe_colour));
+    println!(
+        "writing slot 1 colour {} with each byte 3 value\n",
+        hex_colour(probe_colour)
+    );
     println!("byte 3   colour stored   DPI kept   byte 8 kept");
-    for length in [0u8, 57, 64, 65, 96, 122, 123, 126, 127, 128, 129, 130, 131, 159, 167, 0xff] {
+    for length in [
+        0u8, 57, 64, 65, 96, 122, 123, 126, 127, 128, 129, 130, 131, 159, 167, 0xff,
+    ] {
         let mut probe = original.clone();
         probe.slots[0].color = probe_colour;
         if let Err(error) = mouse.write_profile_with_length(&probe, length) {
@@ -345,6 +357,18 @@ fn set_effect(effect_byte: u8, colour: Option<[u8; 3]>) -> eframe::Result<()> {
             std::process::exit(1);
         }
     };
+    if !effect.is_writable() {
+        eprintln!(
+            "{} would leave the LEDs dark and is not offered: {}",
+            effect.name(),
+            RgbEffect::offered()
+                .iter()
+                .map(|e| format!("{}={:#04x}", e.name(), e.as_byte()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        std::process::exit(1);
+    }
     profile.rgb_effect = Some(effect);
     let previous = previous.map(|e| e.name()).unwrap_or("unbekannt");
     if let Some(colour) = colour {
@@ -362,7 +386,12 @@ fn set_effect(effect_byte: u8, colour: Option<[u8; 3]>) -> eframe::Result<()> {
         std::process::exit(1);
     }
     let blob = mouse.read_config(0x11).unwrap_or_default();
-    let dump: Vec<String> = blob.iter().skip(50).take(14).map(|b| format!("{b:02x}")).collect();
+    let dump: Vec<String> = blob
+        .iter()
+        .skip(50)
+        .take(14)
+        .map(|b| format!("{b:02x}"))
+        .collect();
     println!("bytes 50..63 now: {}", dump.join(" "));
     Ok(())
 }
@@ -399,8 +428,8 @@ fn probe_slots() -> eframe::Result<()> {
     let probes: [u16; NUM_DPI_SLOTS] = [300, 600, 900, 1200, 1500, 1800, 2100, 2400];
     for wanted in 1..=NUM_DPI_SLOTS as u8 {
         let mut probe = original.clone();
-        for index in 0..NUM_DPI_SLOTS {
-            probe.slots[index].dpi = probes[index];
+        for (index, probe_dpi) in probes.iter().enumerate() {
+            probe.slots[index].dpi = *probe_dpi;
             probe.slots[index].disabled = (index as u8) >= wanted;
         }
         probe.dpi_count = wanted;
@@ -545,7 +574,10 @@ fn locate_colour() -> eframe::Result<()> {
     println!("\nbytes that changed, and the value they now hold:\n");
     for index in 0..before.len().min(after.len()) {
         if before[index] != after[index] {
-            println!("  offset {index:3}: {:02x} -> {:02x}", before[index], after[index]);
+            println!(
+                "  offset {index:3}: {:02x} -> {:02x}",
+                before[index], after[index]
+            );
         }
     }
 
@@ -557,11 +589,21 @@ fn locate_colour() -> eframe::Result<()> {
     }
     let restored = mouse.read_config(0x11).unwrap_or_default();
     let identical = restored[..before.len().min(restored.len())] == before[..];
-    println!("{}", if identical { " done, blob matches the original" } else { " done, blob differs from the original" });
+    println!(
+        "{}",
+        if identical {
+            " done, blob matches the original"
+        } else {
+            " done, blob differs from the original"
+        }
+    );
     if !identical {
         for index in 0..before.len().min(restored.len()) {
             if before[index] != restored[index] {
-                println!("  offset {index}: {:02x} vs {:02x}", before[index], restored[index]);
+                println!(
+                    "  offset {index}: {:02x} vs {:02x}",
+                    before[index], restored[index]
+                );
             }
         }
     }
@@ -576,7 +618,11 @@ fn hex_colour(colour: [u8; 3]) -> String {
 fn read_once() -> Result<DeviceState, String> {
     let transport = HidTransport::open(None, None).map_err(|e| e.to_string())?;
     let mut mouse = HidMouse::new(transport);
-    mouse.state(true).map(|s| s.clone()).map_err(|e| e.to_string())
+    // The state is taken by value, not cloned: the call owns the device and
+    // the state borrows from it, so a clone would copy the whole struct out of
+    // a borrow that is about to end anyway.
+    let state = mouse.state(true).map_err(|e| e.to_string())?;
+    Ok(state.clone())
 }
 
 /// The eframe application.
@@ -614,7 +660,8 @@ impl GloriousApp {
             self.saving = true;
         }
         if let Some((slot, enabled)) = actions.save_slot_enabled {
-            self.worker.request(Command::SetSlotEnabled { slot, enabled });
+            self.worker
+                .request(Command::SetSlotEnabled { slot, enabled });
             self.saving = true;
         }
         if let Some((slot, color)) = actions.save_color {
@@ -640,7 +687,12 @@ impl GloriousApp {
         if let Some(dpi) = actions.apply_preset {
             let slot = self
                 .preset_slot
-                .or_else(|| self.state.device.as_ref().and_then(|d| d.profile.active_slot_index()))
+                .or_else(|| {
+                    self.state
+                        .device
+                        .as_ref()
+                        .and_then(|d| d.profile.active_slot_index())
+                })
                 .unwrap_or(0);
             self.worker.request(Command::ApplyPreset { slot, dpi });
             self.saving = true;
@@ -661,10 +713,7 @@ impl eframe::App for GloriousApp {
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Clamped, because a window that was in the background reports a delta of
         // many seconds at once, which would teleport every piece off screen.
-        let delta_seconds = root
-            .ctx()
-            .input(|input| input.stable_dt)
-            .clamp(0.0, 0.05);
+        let delta_seconds = root.ctx().input(|input| input.stable_dt).clamp(0.0, 0.05);
         match self.worker.take_reply() {
             Some(Reply::State(state)) => {
                 self.state.device = Some(*state);
@@ -691,8 +740,10 @@ impl eframe::App for GloriousApp {
             // The burst comes from the middle of the window rather than from the
             // swatch that was clicked: the swatch sits near the top, and pieces
             // thrown upwards from there would immediately leave the window.
-            self.confetti
-                .burst(actions.saved_colours[0].1, root.ctx().content_rect().center());
+            self.confetti.burst(
+                actions.saved_colours[0].1,
+                root.ctx().content_rect().center(),
+            );
         }
         self.confetti.draw(root, delta_seconds);
         self.dispatch(actions);

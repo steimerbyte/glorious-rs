@@ -176,6 +176,16 @@ impl RgbEffect {
         ]
     }
 
+    /// Whether writing this effect is worth doing.
+    ///
+    /// `Constant` is the one value that is not: it leaves the LEDs dark, so
+    /// accepting it would let a profile written from the command line put the
+    /// mouse into a state that looks like a hardware fault and cannot be told
+    /// apart from one. `NotSupported` is excluded for the same reason.
+    pub fn is_writable(self) -> bool {
+        !matches!(self, RgbEffect::Constant | RgbEffect::NotSupported)
+    }
+
     /// Whether this effect shows the per-slot colours, or its own instead.
     ///
     /// Measured on a Model O: with a solid effect selected, changing a slot's
@@ -240,8 +250,7 @@ pub const KNOWN_CONFIG_BYTES: &[usize] = &[
     // configured separately.
     13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
     // 29..53 hold one RGB colour per DPI slot.
-    29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
-    51, 52,
+    29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
     // Lighting: the effect selector and the colour a solid effect shows.
     53, 57, 58, 59,
 ];
