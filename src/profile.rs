@@ -258,14 +258,24 @@ impl Profile {
         // 1171 pixels, 0x40 lit two with a peak of 820, and 0xff lit four with a
         // peak of 1508. The lower nibble made no difference.
         //
-        // Bytes 61 to 81 are the seven colours, and they are not understood.
-        // Setting one of them to 255 and the rest to zero did not produce a
-        // red breathing mouse: the effect cycled through blue and green, and
-        // setting all twenty-one bytes to 255 produced a blue mouse rather than
-        // a white one. Either the addresses are wrong or the effect takes its
-        // colours from somewhere else. Until that is settled they are carried
-        // over from the device untouched, which is also what keeps a profile
-        // the user has set from being overwritten.
+        // Bytes 61 to 81 are meant to be the seven colours, and that is wrong,
+        // or at least not what this device does with them. The test that settles
+        // it: with all twenty-one set to zero the breathing effect still runs,
+        // cycling through blue, magenta and white. With all twenty-one set to
+        // 255 it also runs, and never once shows red or green, although every
+        // byte was at its maximum. An effect that ignores its own colour table
+        // is not reading that table, so the seven colours live somewhere this
+        // has not found, and the byte 61 to 81 range means something else.
+        //
+        // What is known about the range: zeroing 61 to 120 lets the effect run
+        // for a few frames and then the LEDs go out, while setting 61 to 68
+        // alone or 69 to 75 alone still produces a lit, slowly changing mouse.
+        // So the effect is controlled across that whole span rather than by one
+        // byte in it, and no single byte there was found to switch it on or off.
+        //
+        // They are carried over from the device untouched. That is the only
+        // safe handling while their meaning is unknown: writing zeros clears
+        // whatever the user had, and the device accepts that without comment.
         out[60] = self.rgb_breathing7_mode;
         for i in 0..7 {
             let base = 61 + i * 3;

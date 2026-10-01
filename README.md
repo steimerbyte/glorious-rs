@@ -135,15 +135,22 @@ again.** Counting photographs about a second apart, byte 60 at 0 lit the mouse i
 one of eighteen with a peak of 1171 lit pixels, 0x40 in two with a peak of 820,
 and 0xff in four with a peak of 1508.
 
-**Bytes 61 to 81 are meant to be the seven colours of that effect, and they are
-not understood.** Setting one to 255 and the rest to zero did not give a red
-breathing mouse: the effect cycled through blue and green instead. Setting all
-twenty-one to 255 gave blue rather than white. So either the addresses are wrong
-or the effect takes its colours from somewhere else, and the driver only says
-where they should be. They are carried over from the device untouched, which is
-what stops a colour the user has set from being written over by a guess. A single
-photograph of a breathing effect is worth nothing anyway: the lit strip measured
-between 32 and 1890 pixels on successive frames a second apart.
+**Bytes 61 to 81 are supposed to be the seven colours of that effect, and the
+device does not read them as such.** The test that settles it: with all
+twenty-one set to zero the breathing effect still runs, cycling through blue,
+magenta and white. With all twenty-one set to 255 it also runs and never shows
+red or green, though every byte was at its maximum. An effect that ignores its
+own colour table is not reading that table.
+
+What the range does do: zeroing 61 to 120 lets the effect run for a few frames
+and then the LEDs go out, while setting 61 to 68 on its own, or 69 to 75 on its
+own, still gives a lit and slowly changing mouse. So the effect is controlled
+across the whole span rather than by one byte in it, and no single byte there was
+found to switch it on or off. They are carried over from the device untouched,
+which is what stops a colour the user has set from being written over by a
+guess. A single photograph of a breathing effect is worth nothing anyway: the
+lit strip measured between 32 and 1890 pixels on successive frames a second
+apart.
 
 **A read right after a write returns the old values.** The window therefore
 reports what it just wrote, and a reload from the device confirms it.
