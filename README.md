@@ -115,8 +115,29 @@ reports what it just wrote, and a reload from the device confirms it.
 
 The device does not confirm a write, and reading the blob back does not show
 whether the change took effect. For anything that touches the LEDs, a camera is
-the only witness: write a colour, photograph the mouse, and compare. The scripts
-used for that live outside this repository, in `~/tmp/mouse-cam/`.
+the only witness: write a colour, photograph the mouse, and compare.
+
+The scripts used for that are in [`tools/`](tools/):
+
+| | |
+|---|---|
+| `measure.py BILD` | the colour the mouse is showing, from one photograph |
+| `map-effects.sh [Bilder] [Pfad]` | writes each lighting effect in turn and photographs it several times |
+| `effects.py [Ordner…]` | tells the recorded effects apart by how much their brightness and hue move |
+| `cap.cmd` | takes one frame from the camera, run through `cmd.exe` |
+
+They need WSL, a camera on the host and `ffmpeg` on the Windows side. The
+camera cannot be told to raise saturation or exposure, so `measure.py` pushes the
+colours apart on the pixels instead, which is more precise than any camera
+setting would be. The region of the frame holding the mouse is a constant at the
+top of `measure.py` and `effects.py`; it was checked against captured frames and
+has to be adjusted for a different desk.
+
+The lighting effects were mapped this way. The names come from the ratbag driver,
+but two of them do not behave as documented: value 8 stays within the blue to cyan
+range instead of changing colour, and value 6 leaves the LEDs dark. The driver
+notes that neither is offered in the vendor software, which is consistent with
+what the mouse does.
 
 ## Keywords
 
