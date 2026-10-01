@@ -20,7 +20,18 @@ pub struct UiActions {
     pub save_rgb: Option<crate::protocol::RgbEffect>,
     /// Colour for an effect that shows one colour for the whole mouse.
     pub save_effect_colour: Option<[u8; 3]>,
+    /// Slot picked for the preset buttons.
+    pub select_slot: Option<usize>,
+    /// Resolution to hand to the slots the preset covers.
+    pub apply_preset: Option<u16>,
 }
+
+/// Resolutions offered as one click, the ones that come up in practice.
+///
+/// The mouse accepts 100 to 16000, so a drag control has to cover that whole
+/// range, which makes it useless for picking an exact value. These are the ones
+/// people set, and they are what the vendor software lists as well.
+const PRESET_DPIS: [u16; 8] = [400, 800, 1600, 3200, 5000, 8000, 12000, 16000];
 
 /// Draw the window into `root`, which is the panel `eframe` handed us.
 pub fn draw(root: &mut egui::Ui, state: &mut AppState) -> UiActions {
@@ -128,6 +139,33 @@ fn draw_dpi(ui: &mut egui::Ui, state: &mut AppState, actions: &mut UiActions) {
     let active_index = device.profile.active_slot_index();
 
     section(ui, "DPI");
+
+    // A click is only acted on when the pointer is released, so a drag across
+    // the row does not write a value per frame it passes over.
+    let released = root_released(ui);
+
+    // A row of the resolutions people actually use, so setting up a profile does
+    // not mean typing each value. The mouse stores 100 to 16000, but a DragValue
+    // for that range is unusable, which is why the vendor software offers a
+    // fixed list too.
+    egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.weak("Preset: assign these to the selected slots, or to the ones that are off.");
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
+            for dpi in PRESET_DPIS {
+                if ui
+                    .button(dpi.to_string())
+                    .on_hover_text(format!("Set {dpi} dpi on the selected slots"))
+                    .clicked()
+                    && released
+                {
+                    actions.apply_preset = Some(dpi);
+                }
+            }
+        });
+    });
+
     // Edits are collected here and only handed to the device after the frame,
     // because writing needs a mutable borrow the borrow checker forbids mid UI.
     //
@@ -135,10 +173,10 @@ fn draw_dpi(ui: &mut egui::Ui, state: &mut AppState, actions: &mut UiActions) {
     // the DPI spinner report `changed` continuously while the pointer is down,
     // and writing each of those would flood the mouse. It would also rebuild the
     // widgets underneath the open popup, which closes it mid-drag.
-    let released = root_released(ui);
     let mut changed: Vec<(usize, u16)> = Vec::new();
     let mut toggles: Vec<(usize, bool)> = Vec::new();
     let mut colors: Vec<(usize, [u8; 3])> = Vec::new();
+    let mut selected: Option<usize> = None;
 
     egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
         ui.set_width(ui.available_width());
@@ -150,42 +188,51 @@ fn draw_dpi(ui: &mut egui::Ui, state: &mut AppState, actions: &mut UiActions) {
                 ui.strong("Slot");
                 ui.strong("DPI");
                 ui.strong("LED");
-                ui.strong("Enabled");
+                ui.strong("On");
                 ui.end_row();
 
-                for index in 0..device.profile.slots.len() {
+                // Only the slots the mouse actually drives. The report has room
+                // for eight, but the vendor configuration lists six and the
+                // device refuses a profile that switches on more, so showing the
+                // last two would offer settings that cannot be saved.
+                for index in 0..crate::protocol::USABLE_DPI_SLOTS {
                     let slot = device.profile.slots[index];
                     let active = active_index == Some(index);
-                    ui.label(
-                        egui::RichText::new(format!("{}", index + 1))
-                            .color(if active { ACCENT } else { egui::Color32::GRAY }),
-                    );
+                    let response = ui
+                        .label(
+                            egui::RichText::new(format!("{}", index + 1))
+                                .color(if active { ACCENT } else { egui::Color32::GRAY })
+                                .strong(),
+                        )
+                        .on_hover_text(if active {
+                            "The slot the mouse is using right now"
+                        } else {
+                            "Click to select this slot for the preset buttons above"
+                        });
+                    if response.clicked() {
+                        selected = Some(index);
+                    }
 
-                    // Only the active slot is editable, mirroring the vendor
-                    // software where you pick the slot with the DPI button.
+                    // Every slot is editable. The vendor software only lets the
+                    // slot the mouse currently uses be changed, which means
+                    // reconfiguring a profile means pressing the DPI button
+                    // repeatedly. The device stores each slot independently, so
+                    // there is no reason to make the user do that here.
                     let mut dpi = slot.dpi;
-                    let editable = active && !slot.disabled;
-                    if editable {
-                        let response = ui.add(
+                    if ui
+                        .add(
                             egui::DragValue::new(&mut dpi)
                                 .speed(50.0)
                                 .range(100..=max_dpi)
                                 .suffix(" dpi"),
-                        );
-                        if response.changed() {
-                            changed.push((index, dpi));
-                        }
-                    } else {
-                        ui.label(format!("{} dpi", slot.dpi))
-                            .on_hover_text(if slot.disabled {
-                                "this slot is disabled"
-                            } else {
-                                "select this slot on the mouse to edit it"
-                            });
+                        )
+                        .changed()
+                    {
+                        changed.push((index, dpi));
                     }
 
-                    // egui 0.36 edits the byte array directly, which is also
-                    // how the device stores the colour.
+                    // egui edits the byte array directly, which is also how the
+                    // device stores the colour.
                     let mut color = slot.color;
                     if ui.color_edit_button_srgb(&mut color).changed() {
                         colors.push((index, color));
@@ -199,6 +246,10 @@ fn draw_dpi(ui: &mut egui::Ui, state: &mut AppState, actions: &mut UiActions) {
                 }
             });
     });
+
+    if let Some(index) = selected {
+        actions.select_slot = Some(index);
+    }
 
     if let Some((index, dpi)) = changed.into_iter().last().filter(|_| released) {
         actions.save_dpi = Some((index, dpi));

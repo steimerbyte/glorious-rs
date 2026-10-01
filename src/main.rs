@@ -4,7 +4,7 @@ use eframe::egui;
 
 use glorious::app::AppState;
 use glorious::device::{DeviceState, HidMouse};
-use glorious::protocol::{COLOR_SLOT_BASE, NUM_DPI_SLOTS, RgbEffect};
+use glorious::protocol::{COLOR_SLOT_BASE, NUM_DPI_SLOTS, RgbEffect, raw_to_dpi};
 use glorious::transport::HidTransport;
 use glorious::ui;
 use glorious::worker::{Command, Reply, Worker};
@@ -24,6 +24,12 @@ fn main() -> eframe::Result<()> {
             [(v >> 16) as u8, (v >> 8) as u8, v as u8]
         });
         return set_effect(effect, colour);
+    }
+    // `--probe-slots` writes a distinct DPI into every slot, which is how the
+    // number of slots the device really keeps is established: the vendor
+    // software only offers six, while the report has room for eight.
+    if first.as_deref() == Some("--probe-slots") {
+        return probe_slots();
     }
     // `--set-colour SLOT RRGGBB [BYTE3]` writes one colour and reports what the
     // device stored, which is how the colour bytes get mapped.
@@ -360,6 +366,80 @@ fn set_effect(effect_byte: u8, colour: Option<[u8; 3]>) -> eframe::Result<()> {
     Ok(())
 }
 
+/// Find out how many DPI slots the device really keeps.
+///
+/// The vendor software offers six, while the configuration report has room for
+/// eight, and byte 11 counts only the slots that are switched on. So all eight
+/// are written with a distinct resolution and switched on, and the report is read
+/// back: a value that survives is a slot the mouse can actually use.
+///
+/// The original settings are restored at the end.
+fn probe_slots() -> eframe::Result<()> {
+    let transport = match HidTransport::open(None, None) {
+        Ok(transport) => transport,
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+    };
+    let mut mouse = HidMouse::new(transport);
+    let original = match mouse.state(true) {
+        Ok(state) => state.profile.clone(),
+        Err(error) => {
+            eprintln!("read failed: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    // Byte 11 carries the number of slots that are switched on, and the device
+    // rejects the whole profile when that does not match the mask. Enabling all
+    // eight at once was refused outright, so how many it accepts is established
+    // by trying each count and seeing which one takes.
+    let probes: [u16; NUM_DPI_SLOTS] = [300, 600, 900, 1200, 1500, 1800, 2100, 2400];
+    for wanted in 1..=NUM_DPI_SLOTS as u8 {
+        let mut probe = original.clone();
+        for index in 0..NUM_DPI_SLOTS {
+            probe.slots[index].dpi = probes[index];
+            probe.slots[index].disabled = (index as u8) >= wanted;
+        }
+        probe.dpi_count = wanted;
+        if let Err(error) = mouse.write_profile(&probe) {
+            eprintln!("{wanted} slots: write failed: {error}");
+            continue;
+        }
+        let after = mouse.read_config(0x11).unwrap_or_default();
+        let stored: Vec<u16> = (0..NUM_DPI_SLOTS)
+            .map(|index| {
+                raw_to_dpi(
+                    after.get(13 + index).copied().unwrap_or(0),
+                    after.get(9).copied().unwrap_or(0),
+                )
+            })
+            .collect();
+        let taken = stored
+            .iter()
+            .zip(probes.iter())
+            .filter(|(stored, wanted)| stored == wanted)
+            .count();
+        println!(
+            "{wanted} slots on: byte 11 = {:02x}, {} of {} resolutions took",
+            after.get(11).copied().unwrap_or(0),
+            taken,
+            NUM_DPI_SLOTS
+        );
+        // Put the device back before the next candidate, so a rejected count
+        // cannot leave a half written profile behind.
+        let _ = mouse.write_profile(&original);
+    }
+
+    print!("\nrestoring the original");
+    match mouse.write_profile(&original) {
+        Ok(()) => println!(" done"),
+        Err(error) => println!(" failed: {error}"),
+    }
+    Ok(())
+}
+
 /// Write one slot's colour, leaving everything else alone.
 ///
 /// Used to map the colour bytes: the user reads the result off the mouse.
@@ -504,13 +584,21 @@ struct GloriousApp {
     worker: Worker,
     /// Set while a change is being written, so the window can show progress.
     saving: bool,
+    /// Slot the preset buttons write to, so they have a target before one is
+    /// picked in the table. Falls back to the slot the mouse is using.
+    preset_slot: Option<usize>,
 }
 
 impl GloriousApp {
     fn new() -> Self {
         let worker = Worker::start();
         worker.request(Command::Read);
-        GloriousApp { state: AppState::default(), worker, saving: false }
+        GloriousApp {
+            state: AppState::default(),
+            worker,
+            saving: false,
+            preset_slot: None,
+        }
     }
 
     /// Turn UI clicks into worker commands.
@@ -539,6 +627,18 @@ impl GloriousApp {
         }
         if let Some(color) = actions.save_effect_colour {
             self.worker.request(Command::SetEffectColor { color });
+            self.saving = true;
+        }
+        if let Some(slot) = actions.select_slot {
+            // The picked slot is remembered so the preset buttons have a target.
+            self.preset_slot = Some(slot);
+        }
+        if let Some(dpi) = actions.apply_preset {
+            let slot = self
+                .preset_slot
+                .or_else(|| self.state.device.as_ref().and_then(|d| d.profile.active_slot_index()))
+                .unwrap_or(0);
+            self.worker.request(Command::ApplyPreset { slot, dpi });
             self.saving = true;
         }
         if let Some(ms) = actions.save_debounce {

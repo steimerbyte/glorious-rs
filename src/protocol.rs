@@ -54,6 +54,16 @@ pub const CMD_GET_BUTTONS3: u8 = 0x32;
 /// fewer, but the device always has this many.
 pub const NUM_DPI_SLOTS: usize = 8;
 
+/// Slots this device actually offers.
+///
+/// The report has room for eight and the driver writes all eight, but the
+/// vendor configuration for this mouse lists six resolutions and six colours, and
+/// a Model O stores no others: enabling more than six and writing it back was
+/// refused outright, leaving every resolution at its previous value. The last two
+/// slots are storage the firmware keeps but does not drive, which is why they
+/// read back as 100 dpi.
+pub const USABLE_DPI_SLOTS: usize = 6;
+
 /// Offset of the first per-slot LED colour, three bytes per slot, RGB order.
 ///
 /// Confirmed by the driver's `sinowealth_config_report`: `dpis` is a 16 byte

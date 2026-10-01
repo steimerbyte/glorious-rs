@@ -23,6 +23,8 @@ pub enum Command {
     },
     /// Colour for an effect that shows one colour for the whole mouse.
     SetEffectColor { color: [u8; 3] },
+    /// Set one resolution on the slot the user picked and the ones that are off.
+    ApplyPreset { slot: usize, dpi: u16 },
     SetDebounce { ms: u8 },
 }
 
@@ -149,6 +151,22 @@ fn apply(mouse: &mut HidMouse, command: Command) -> Reply {
         }),
         Command::SetEffectColor { color } => with_profile(mouse, |profile| {
             profile.rgb_single_color = color;
+            Ok(())
+        }),
+        Command::ApplyPreset { slot, dpi } => with_profile(mouse, |profile| {
+            let slots = &mut profile.slots;
+            if slot >= slots.len() {
+                return Err(format!("slot {} does not exist", slot + 1));
+            }
+            // The chosen slot takes the resolution, and so does every slot that
+            // is switched off: those are the ones the user is not using, so
+            // setting them is how a profile gets filled out.
+            slots[slot].dpi = dpi;
+            for (index, other) in slots.iter_mut().enumerate() {
+                if other.disabled && index != slot {
+                    other.dpi = dpi;
+                }
+            }
             Ok(())
         }),
         // The debounce value lives in its own command, so the profile is not
