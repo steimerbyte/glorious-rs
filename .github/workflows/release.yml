@@ -24,6 +24,14 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      # hidapi links against libudev on Linux, and its build script stops with
+      # a pkg-config error rather than a useful message when the library is not
+      # there. The runner image does not ship it.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
+
       - name: Test
         run: cargo test --locked
 

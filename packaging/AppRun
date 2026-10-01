@@ -17,4 +17,10 @@ if [ ! -e /dev/hidraw0 ]; then
     exit 1
 fi
 
+# The libraries next to the binary are the ones it was built against, and they
+# are preferred over the host's: a system that has a libudev of a different
+# vintage is a worse bet than the one this image was cut from.
+LD_LIBRARY_PATH="$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH
+
 exec "$HERE/usr/bin/glorious-rs" "$@"

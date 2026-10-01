@@ -33,9 +33,33 @@ BIN="target/release/glorious-rs"
 
 APPDIR="target/glorious-rs.AppDir"
 rm -rf "$APPDIR"
-mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/glorious-rs/udev"
+mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/glorious-rs/udev" "$APPDIR/usr/lib"
 
 install -Dm755 "$BIN" "$APPDIR/usr/bin/glorious-rs"
+
+# hidapi links against libudev, and the AppImage does not inherit the host's
+# libraries. Without this the image starts on any machine that happens to have
+# libudev and fails on a minimal one, which is exactly the machine where someone
+# would want a self-contained file. Both the soname and its symlink are copied,
+# because the binary asks for the soname and the loader resolves through it.
+for lib in libudev.so.1 libgcc_s.so.1; do
+    # No `exit` in the awk program: it would close the pipe early, and with
+    # `set -o pipefail` the resulting SIGPIPE fails the whole build.
+    path="$(ldconfig -p 2>/dev/null | awk -v l="$lib" '$1 == l && !found { print $NF; found = 1 }')"
+    if [ -z "$path" ] || [ ! -e "$path" ]; then
+        echo "missing $lib" >&2
+        exit 1
+    fi
+    # The loader resolves the soname, and for a library whose soname is a
+    # symlink that symlink is what it opens, so both are copied under their own
+    # names. Copying the symlink itself would leave the image pointing outside
+    # it, at a host file that may not be there.
+    install -Dm755 "$path" "$APPDIR/usr/lib/$lib"
+    real="$(readlink -f "$path")"
+    if [ "$real" != "$path" ]; then
+        install -Dm755 "$real" "$APPDIR/usr/lib/$(basename "$real")"
+    fi
+done
 install -Dm644 udev/70-glorious-oss.rules "$APPDIR/usr/share/glorious-rs/udev/70-glorious-oss.rules"
 install -Dm644 PROTOCOL.md "$APPDIR/usr/share/glorious-rs/PROTOCOL.md"
 install -Dm644 README.md "$APPDIR/usr/share/glorious-rs/README.md"
