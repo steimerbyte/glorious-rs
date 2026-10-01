@@ -42,9 +42,11 @@ jobs:
 
       - name: Install appimagetool
         run: |
-          curl -sL -o /tmp/appimagetool \
+          curl -fsSL -o /usr/local/bin/appimagetool \
             https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x /tmp/appimagetool
+          chmod +x /usr/local/bin/appimagetool
+          sudo apt-get install -y squashfs-tools
+          appimagetool --version || echo "runs only unpacked, which the script handles"
 
       - name: Build AppImage
         run: packaging/build-appimage.sh
