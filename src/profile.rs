@@ -251,6 +251,21 @@ impl Profile {
         out[55] = self.rgb_glorious_direction;
         out[56] = self.rgb_single_mode;
         out[57..60].copy_from_slice(&to_device_colour(self.rgb_single_color));
+        // Byte 60 belongs to the seven colour breathing effect, and its upper
+        // nibble is the brightness, the same packing as byte 56. Measured by
+        // counting, out of eighteen photographs about a second apart, how many
+        // showed the mouse lit: byte 60 at 0 lit one of them with a peak of
+        // 1171 pixels, 0x40 lit two with a peak of 820, and 0xff lit four with a
+        // peak of 1508. The lower nibble made no difference.
+        //
+        // Bytes 61 to 81 are the seven colours, and they are not understood.
+        // Setting one of them to 255 and the rest to zero did not produce a
+        // red breathing mouse: the effect cycled through blue and green, and
+        // setting all twenty-one bytes to 255 produced a blue mouse rather than
+        // a white one. Either the addresses are wrong or the effect takes its
+        // colours from somewhere else. Until that is settled they are carried
+        // over from the device untouched, which is also what keeps a profile
+        // the user has set from being overwritten.
         out[60] = self.rgb_breathing7_mode;
         for i in 0..7 {
             let base = 61 + i * 3;

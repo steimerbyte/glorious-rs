@@ -130,6 +130,21 @@ puts red at the front. Byte 55 made no visible difference at 0, 64, 128 or 255,
 and is carried over from the device untouched. Under the solid effects byte 54
 makes no difference either, which is why it only means something in one of them.
 
+**Byte 60 is the brightness of the seven colour breathing effect, upper nibble
+again.** Counting photographs about a second apart, byte 60 at 0 lit the mouse in
+one of eighteen with a peak of 1171 lit pixels, 0x40 in two with a peak of 820,
+and 0xff in four with a peak of 1508.
+
+**Bytes 61 to 81 are meant to be the seven colours of that effect, and they are
+not understood.** Setting one to 255 and the rest to zero did not give a red
+breathing mouse: the effect cycled through blue and green instead. Setting all
+twenty-one to 255 gave blue rather than white. So either the addresses are wrong
+or the effect takes its colours from somewhere else, and the driver only says
+where they should be. They are carried over from the device untouched, which is
+what stops a colour the user has set from being written over by a guess. A single
+photograph of a breathing effect is worth nothing anyway: the lit strip measured
+between 32 and 1890 pixels on successive frames a second apart.
+
 **A read right after a write returns the old values.** The window therefore
 reports what it just wrote, and a reload from the device confirms it.
 
