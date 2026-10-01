@@ -67,6 +67,29 @@ fn main() -> eframe::Result<()> {
         return probe_write();
     }
 
+    // `--set-byte OFFSET WERT` writes one byte of the configuration report and
+    // leaves every other byte at whatever the device reported. It exists for
+    // mapping a field whose meaning is not known: one value at a time, with
+    // everything else held still, which is the only way to tell a field that
+    // does something from one that is simply stored.
+    if first.as_deref() == Some("--set-byte") {
+        let mut rest = std::env::args().skip(2);
+        let offset: usize = match rest.next().and_then(|a| a.parse().ok()) {
+            Some(offset) => offset,
+            None => {
+                eprintln!("usage: --set-byte OFFSET WERT");
+                std::process::exit(2);
+            }
+        };
+        let value: u8 = match rest.next().and_then(|a| a.parse().ok()) {
+            Some(value) => value,
+            None => {
+                eprintln!("usage: --set-byte OFFSET WERT");
+                std::process::exit(2);
+            }
+        };
+        return set_byte(offset, value);
+    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([520.0, 640.0])
@@ -202,6 +225,52 @@ fn probe_write() -> eframe::Result<()> {
         }
     } else {
         println!("\nthe device did not store the value; the original is untouched");
+    }
+    Ok(())
+}
+
+/// Write one byte of the configuration report and report what the device kept.
+///
+/// Everything else is carried over from the device's own blob. Reading the byte
+/// straight back does not say whether the setting took effect, so the report
+/// here is about storage; what the mouse does with it is a question for the
+/// camera.
+fn set_byte(offset: usize, value: u8) -> eframe::Result<()> {
+    let transport = match HidTransport::open(None, None) {
+        Ok(transport) => transport,
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+    };
+    let mut mouse = HidMouse::new(transport);
+    let profile = match mouse.state(true) {
+        Ok(state) => state.profile.clone(),
+        Err(error) => {
+            eprintln!("read failed: {error}");
+            std::process::exit(1);
+        }
+    };
+    if let Err(error) = mouse.write_single_byte(&profile, offset, value) {
+        eprintln!("write failed: {error}");
+        std::process::exit(1);
+    }
+    println!("wrote {value:#04x} to byte {offset}");
+
+    // The device answers a fresh read with the state from before the write, so
+    // this is reported separately and not taken as confirmation.
+    match mouse.read_config(glorious::protocol::config_command(profile.index)) {
+        Ok(blob) if offset < blob.len() => println!(
+            "byte {offset} reads back as {:#04x}{}",
+            blob[offset],
+            if blob[offset] == value {
+                ""
+            } else {
+                " (not the value written)"
+            }
+        ),
+        Ok(_) => {}
+        Err(error) => println!("read back failed: {error}"),
     }
     Ok(())
 }

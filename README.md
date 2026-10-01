@@ -101,18 +101,26 @@ not known has to keep whatever the device reported. Writing zero into it clears
 a setting the user never touched, and the device accepts that without comment:
 this is how an early version of this tool cleared the lighting of a real mouse.
 
-**The colour channels are red, green, blue.** The ratbag driver warns that the
-order varies by device, and it is worth taking that seriously: on a device that
-stores red, blue, green, a tool that assumes the ordinary order swaps green and
-blue. What this device does was measured rather than assumed. Writing `ff0000`
-produced a red mouse and writing `0000ff` produced a blue one, both in the same
-solid effect and both confirmed on a photograph of the device.
+**The colour channels are red, blue, green.** The ratbag driver warns that the
+order varies by device, and on this one it does. Writing `00ff00` produces a
+blue mouse, writing `0000ff` produces a green one, and writing `ff0000` produces
+a red one. Each of those was checked on a photograph of the device, not on a
+read back from it.
 
-Red alone would have settled nothing. It is the one channel a swap does not
-touch, so a tool with the order wrong still shows red correctly. An earlier
-version of this tool assumed red, blue, green, and green came out blue for
-exactly that reason. The conversion stays in the code, switched off, because the
-driver's warning is real and the next model may not be.
+Red is the trap in a test like this. It is the one channel a swap does not touch,
+so a tool with the order backwards still shows red correctly and looks right.
+Measuring red alone led to the opposite conclusion here, and the mistake showed
+up as every green setting coming out blue. The conversion applies to writing
+only: a colour read back from the device is already in the device's order, and
+swapping it on the way in would undo the swap on the way out.
+
+**Byte 56 is the brightness of the solid effect, and only the upper nibble of
+it.** Measured by writing one value at a time and photographing the mouse after
+each: values 1, 2, 4, 8 and 16 left the LEDs dark, 32 lit them at about half, and
+64 lit them fully. The lower nibble made no visible difference at any of those
+values. The field is packed as brightness in the high nibble, so a value of
+`0x13` is brightness 1 and speed 3, and the pairing in `rgb_mode_decode` is the
+other way round from what that ordering implies.
 
 **A read right after a write returns the old values.** The window therefore
 reports what it just wrote, and a reload from the device confirms it.

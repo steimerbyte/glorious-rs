@@ -212,19 +212,21 @@ const PROFILE_OFFSETS: [u8; 3] = [0x00, 0x10, 0x20];
 
 /// Whether this device stores colours as red, green, blue or red, blue, green.
 ///
-/// The ratbag driver warns that the order varies by device, and the warning is
-/// worth keeping: on a device that really does store red, blue, green, a tool
-/// that assumes red, green, blue swaps green and blue. What this device does
-/// was measured, not assumed, and the answer turned out to be the ordinary
-/// order.
+/// The ratbag driver warns that the order varies by device, and on this one it
+/// does. The measurement, all of it in the same solid effect and checked on a
+/// photograph of the device rather than on a reading:
 ///
-/// The measurement: writing `ff0000` produced a red mouse and writing `0000ff`
-/// produced a blue one, both in the same solid effect and confirmed on a
-/// photograph of the device. An earlier version of this file asserted red, blue,
-/// green on the strength of a guess, and it showed green as blue. Red is the
-/// weak case in such a test, because red is the one channel a swap does not
-/// touch, so a swap is invisible in it.
-pub const COLOUR_ORDER_RBG: bool = false;
+/// - writing `00ff00` produced a blue mouse
+/// - writing `0000ff` produced a green mouse
+/// - writing `ff0000` produced a red mouse
+///
+/// Red is the weak case in a test like this: it is the one channel a swap does
+/// not touch, so a tool with the order wrong still shows red correctly. The first
+/// attempt at this measurement tested red alone, concluded the order was the
+/// ordinary one, and swapped green and blue in the process. Removing the
+/// conversion made every green setting come out blue, which is the same wrong
+/// result seen from the other side. The value below is what the device does.
+pub const COLOUR_ORDER_RBG: bool = true;
 
 /// Convert a colour from the tool's RGB order into the device's own order.
 pub fn to_device_colour(colour: [u8; 3]) -> [u8; 3] {

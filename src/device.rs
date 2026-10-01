@@ -223,6 +223,48 @@ impl<T: FeatureTransport> Mouse<T> {
         self.cached = None;
         Ok(())
     }
+
+    /// Write one byte of the configuration report, leaving every other byte at
+    /// whatever the device currently reports.
+    ///
+    /// This is a mapping tool, not a settings path. `write_profile` overlays
+    /// only the fields it understands, which is what keeps it from clearing
+    /// settings the user never touched, but it cannot be used to explore a field
+    /// whose meaning is unknown. This one changes exactly one byte and carries
+    /// the rest over untouched, so a change in what the mouse does can be
+    /// attributed to that byte.
+    pub fn write_single_byte(
+        &mut self,
+        profile: &Profile,
+        offset: usize,
+        value: u8,
+    ) -> Result<(), TransportError> {
+        let command = config_command(profile.index);
+        let blob = self.read_config(command)?;
+        if blob.len() < MIN_CONFIG_SIZE || blob[1] != command {
+            return Err(TransportError::Protocol(
+                "device returned an unusable configuration blob".into(),
+            ));
+        }
+        let payload_len = Self::payload_length(&blob);
+        if offset >= payload_len || offset >= CONFIG_REPORT_SIZE {
+            return Err(TransportError::Protocol(format!(
+                "offset {offset} is outside the payload of {payload_len} bytes"
+            )));
+        }
+
+        let mut payload = vec![0u8; CONFIG_REPORT_SIZE];
+        let keep = payload_len.min(blob.len());
+        payload[..keep].copy_from_slice(&blob[..keep]);
+        payload[offset] = value;
+        payload[0] = REPORT_ID_CONFIG;
+        payload[1] = command;
+        payload[3] = Self::MODEL_O_LENGTH_BYTE;
+
+        self.transport.set_feature_report(&payload)?;
+        self.cached = None;
+        Ok(())
+    }
 }
 
 /// The mouse implementation used by the app.
