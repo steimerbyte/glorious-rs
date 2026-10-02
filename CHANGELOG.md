@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.1
+
+The 1.2.0 AppImage had no command line in it. The Windows release needed the
+window and the commands split into two binaries, and the image was still built
+from a script written for one, so Linux was left with a window and no way to
+read what it wrote from a terminal. The image carries both now, and its entry
+point sends a known command to the second one.
+
+### Fixed
+
+- The AppImage had no command line. The Windows release needed the split in this
+  section, and the image was built from a script that had been written for the
+  single binary, so it installed `glorious-rs` and stopped there. Linux was left
+  with a window and no way to read what it wrote, which is the one thing this
+  project measures with. Both binaries go in now, and the AppImage entry point
+  sends a known command to `glorious-ctl` and everything else to the window, so
+  `./GloriousMouse.AppImage --dpi` prints the settings.
+
 ## 1.2.0
 
 Two bugs a user hit on a real mouse, the console window that came with every
@@ -61,14 +79,6 @@ third sections; they are the reason to take this one.
   photograph of the solid effect at that brightness.
 
 ### Fixed
-
-- The AppImage had no command line. The Windows release needed the split in this
-  section, and the image was built from a script that had been written for the
-  single binary, so it installed `glorious-rs` and stopped there. Linux was left
-  with a window and no way to read what it wrote, which is the one thing this
-  project measures with. Both binaries go in now, and the AppImage entry point
-  sends a known command to `glorious-ctl` and everything else to the window, so
-  `./GloriousMouse.AppImage --dpi` prints the settings.
 
 - Applying a profile list put the same resolution on every slot. Two faults
   fed each other. The write path rendered all eight slots, so bytes 19 and 20
