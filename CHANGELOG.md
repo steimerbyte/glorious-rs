@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
+
+Two bugs a user hit on a real mouse, the console window that came with every
+start, and four additions to the interface. The fixes are in the second and
+third sections; they are the reason to take this one.
 
 ### Interface
 
