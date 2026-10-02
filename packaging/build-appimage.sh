@@ -29,13 +29,21 @@ echo "==> release build"
 cargo build --release
 
 BIN="target/release/glorious-rs"
+CTL="target/release/glorious-ctl"
 [ -x "$BIN" ] || { echo "missing $BIN" >&2; exit 1; }
+# The command line is not optional on Linux. The window is built for the GUI
+# subsystem on Windows, and a binary in that subsystem has no console to print
+# to, so the commands are the only way to read the mouse from a terminal here.
+# An image without them would leave Linux with a window and no way to check what
+# it wrote.
+[ -x "$CTL" ] || { echo "missing $CTL" >&2; exit 1; }
 
 APPDIR="target/glorious-rs.AppDir"
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/glorious-rs/udev" "$APPDIR/usr/lib"
 
 install -Dm755 "$BIN" "$APPDIR/usr/bin/glorious-rs"
+install -Dm755 "$CTL" "$APPDIR/usr/bin/glorious-ctl"
 
 # hidapi links against libudev, and the AppImage does not inherit the host's
 # libraries. Without this the image starts on any machine that happens to have

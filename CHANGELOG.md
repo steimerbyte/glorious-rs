@@ -62,6 +62,14 @@ third sections; they are the reason to take this one.
 
 ### Fixed
 
+- The AppImage had no command line. The Windows release needed the split in this
+  section, and the image was built from a script that had been written for the
+  single binary, so it installed `glorious-rs` and stopped there. Linux was left
+  with a window and no way to read what it wrote, which is the one thing this
+  project measures with. Both binaries go in now, and the AppImage entry point
+  sends a known command to `glorious-ctl` and everything else to the window, so
+  `./GloriousMouse.AppImage --dpi` prints the settings.
+
 - Applying a profile list put the same resolution on every slot. Two faults
   fed each other. The write path rendered all eight slots, so bytes 19 and 20
   were given a number on every save even though a Model O drives six slots and

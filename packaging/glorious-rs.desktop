@@ -5,6 +5,10 @@ GenericName=Mouse Configuration
 Comment=Configure Glorious gaming mice
 Exec=glorious-rs
 Icon=glorious-rs
+# False, not because the binary suppresses a console, but because on Linux there
+# is nothing to suppress: the subsystem attribute is a Windows PE field, and a
+# Linux build has no console window to open. The Windows build does need the
+# attribute, and has it.
 Terminal=false
 Categories=Settings;HardwareSettings;Utility;
 Keywords=mouse;dpi;glorious;gaming;mousepad;hid;

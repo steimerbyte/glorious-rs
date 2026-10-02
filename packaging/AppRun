@@ -23,4 +23,17 @@ fi
 LD_LIBRARY_PATH="$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export LD_LIBRARY_PATH
 
+# An argument starting with a dash is a command, not something for the window.
+# The window takes no arguments, so without this the image would have no way to
+# reach the command line at all: it is inside the image, and mounting the image
+# to look for it is not something anyone should have to do to read their mouse.
+# The known commands are named rather than any dash, so a mistyped flag still
+# reaches the window and is ignored there instead of running as a command.
+case "${1:-}" in
+    --dpi|--set-effect|--set-colour|--set-byte|--dump-config|--probe-write|\
+    --probe-slots|--locate-colour|--calibrate-length)
+        exec "$HERE/usr/bin/glorious-ctl" "$@"
+        ;;
+esac
+
 exec "$HERE/usr/bin/glorious-rs" "$@"
